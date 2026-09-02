@@ -11,11 +11,13 @@ from rich.console import Console
 from rich.table import Table
 
 from omics_agent import __version__
+from omics_agent.data_sources.ingest import load_ingest_manifest, run_ingest
 from omics_agent.data_sources.synthetic import generate_synthetic_dataset
 from omics_agent.errors import OmicsAgentError
 from omics_agent.pipeline import run_benchmark, write_experiment_yaml
+from omics_agent.reporting.readiness import write_readiness_report
 from omics_agent.schemas.dataset import load_manifest
-from omics_agent.schemas.enums import ReviewStatus, SamplingDesign, SplitName
+from omics_agent.schemas.enums import FileRole, ReviewStatus, SamplingDesign, SourceType, SplitName
 from omics_agent.schemas.experiment import (
     EvaluationConfig,
     ExperimentConfig,
@@ -25,6 +27,7 @@ from omics_agent.schemas.experiment import (
     TaskKind,
 )
 from omics_agent.schemas.experiment import SplitConfig as SplitCfg
+from omics_agent.schemas.ingest import DownloadPolicy, IngestRequest
 
 app = typer.Typer(
     name="omics-agent",
@@ -95,7 +98,7 @@ def doctor() -> None:
             "\nHow to fix: run [bold]uv sync --extra dev[/bold] from the repository root."
         )
         raise typer.Exit(code=1)
-    console.print("Environment is ready for the milestone-1 CPU toy pipeline.")
+    console.print("Environment is ready for the CPU pipeline (milestones 1–2).")
 
 
 @app.command("validate-manifest")
@@ -123,6 +126,77 @@ def validate_manifest(
         "human_review.status: approved. The pipeline will not infer donor/time/biospecimen links."
     )
     raise typer.Exit(code=2)
+
+
+@app.command()
+def ingest(
+    dest: Annotated[Path, typer.Option(help="Directory for ingest_manifest.yaml and raw/")],
+    source: Annotated[
+        str | None,
+        typer.Option(help="geo|biostudies|pride|url|local. Inferred from accession prefix if omitted."),
+    ] = None,
+    accession: Annotated[str | None, typer.Option(help="GSE / PXD / E-MTAB accession")] = None,
+    url: Annotated[str | None, typer.Option(help="Direct HTTPS URL to a processed matrix")] = None,
+    local_path: Annotated[Path | None, typer.Option(help="Local processed matrix file")] = None,
+    paper_doi: Annotated[str | None, typer.Option(help="Provenance only. Never fetched as instructions.")] = None,
+    modality: Annotated[str | None, typer.Option(help="Optional modality label for a single-file ingest")] = None,
+    role: Annotated[str | None, typer.Option(help="Optional file role: matrix|sample_sheet")] = None,
+    dry_run: Annotated[bool, typer.Option(help="Resolve and print the plan; write nothing")] = False,
+    resolve_only: Annotated[bool, typer.Option(help="Write the ingest manifest without downloading")] = False,
+    max_bytes: Annotated[int, typer.Option(help="Refuse files larger than this many bytes")] = 2 * 1024 * 1024 * 1024,
+) -> None:
+    """Resolve a typed ingest manifest from GEO, BioStudies, PRIDE, HTTPS, or a local file.
+
+    Paper text is not executed. Uncertain sample/time/pairing fields stay needs_review.
+    FASTQ and raw mass-spec are refused.
+    """
+
+    try:
+        request = IngestRequest(
+            source=SourceType(source) if source else None,
+            accession=accession,
+            paper_doi=paper_doi,
+            url=url,
+            local_path=local_path,
+            dest_dir=dest,
+            modality=modality,
+            role=FileRole(role) if role else None,
+            dry_run=dry_run,
+            resolve_only=resolve_only,
+            policy=DownloadPolicy(max_bytes=max_bytes),
+        )
+        result = run_ingest(request)
+    except OmicsAgentError as exc:
+        _fail(exc)
+    console.print(result)
+
+
+@app.command("data-readiness")
+def data_readiness(
+    manifest: Annotated[Path, typer.Argument(help="ingest_manifest.yaml or dataset.yaml")],
+    output: Annotated[Path | None, typer.Option(help="HTML report path")] = None,
+) -> None:
+    """Write a red/yellow/green data-readiness report. Does not guess missing mappings."""
+
+    try:
+        if manifest.name == "dataset.yaml":
+            raise OmicsAgentError(
+                "data-readiness for a training dataset.yaml is not the ingest report.",
+                how_to_fix="Pass the ingest_manifest.yaml produced by omics-agent ingest.",
+            )
+        ingest_manifest = load_ingest_manifest(manifest)
+        dest = output or manifest.parent / "data_readiness_report.html"
+        report = write_readiness_report(ingest_manifest, dest)
+    except OmicsAgentError as exc:
+        _fail(exc)
+    console.print(
+        {
+            "dataset_id": report.dataset_id,
+            "blocking": report.blocking,
+            "html": str(dest),
+            "n_red": sum(1 for gate in report.gates if gate.level == "red"),
+        }
+    )
 
 
 @app.command("generate-synthetic")

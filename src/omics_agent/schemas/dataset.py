@@ -15,7 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from omics_agent.errors import NeedsReviewError, SchemaError
 from omics_agent.schemas.enums import (
     AssayType,
+    ChecksumAlg,
     FeatureIdType,
+    FileRole,
     PairingLevel,
     ReviewStatus,
     SamplingDesign,
@@ -54,9 +56,13 @@ class LicenseSpec(StrictModel):
 
 
 class OrganismSpec(StrictModel):
-    """NCBI Taxonomy identity of the sampled organism."""
+    """NCBI Taxonomy identity of the sampled organism.
 
-    taxon_id: int = Field(ge=1)
+    ``taxon_id`` may be omitted only while human review is still open.
+    An approved training manifest must have a real NCBI taxon ID.
+    """
+
+    taxon_id: int | None = Field(default=None, ge=1)
     name: str
 
 
@@ -75,6 +81,16 @@ class DesignSpec(StrictModel):
 
     @model_validator(mode="after")
     def design_is_internally_consistent(self) -> Self:
+        if self.sampling_design is SamplingDesign.UNDECLARED:
+            if self.longitudinal is not None:
+                raise SchemaError(
+                    "design.sampling_design is undeclared but longitudinal is set.",
+                    how_to_fix=(
+                        "Leave longitudinal empty until a person confirms the sampling design. "
+                        "Do not guess longitudinal vs repeated cross-section."
+                    ),
+                )
+            return self
         if self.longitudinal is not None:
             expected = self.sampling_design is SamplingDesign.LONGITUDINAL
             if self.longitudinal != expected:
@@ -98,6 +114,8 @@ class DesignSpec(StrictModel):
                     "Never stitch different animals into one subject trajectory."
                 ),
             )
+        if self.pairing_level is PairingLevel.UNDECLARED:
+            return self
         if self.pairing_level is PairingLevel.GROUP_LEVEL_ONLY and self.paired_modalities:
             raise SchemaError(
                 "pairing_level='group_level_only' cannot be marked paired_modalities=true. "
@@ -126,7 +144,11 @@ class FileSpec(StrictModel):
     url: str | None = None
     sha256: str | None = None
     modality: str
-    role: str = Field(default="matrix", description="matrix|sample_sheet|edges|other")
+    role: FileRole = FileRole.MATRIX
+    official_checksum: str | None = None
+    official_checksum_alg: ChecksumAlg | None = None
+    size_bytes: int | None = Field(default=None, ge=0)
+    retrieved_at: str | None = None
 
     @model_validator(mode="after")
     def has_locator(self) -> Self:
@@ -196,7 +218,7 @@ class DatasetManifest(StrictModel):
 
     @model_validator(mode="after")
     def files_match_modalities(self) -> Self:
-        matrix_modalities = {item.modality for item in self.files if item.role == "matrix"}
+        matrix_modalities = {item.modality for item in self.files if item.role is FileRole.MATRIX}
         missing = set(self.modalities) - matrix_modalities
         if missing:
             raise SchemaError(
@@ -208,6 +230,27 @@ class DatasetManifest(StrictModel):
             raise SchemaError(
                 f"Matrix files refer to unknown modalities {sorted(unknown)}.",
                 how_to_fix="Add those keys under modalities: or fix the files[].modality spelling.",
+            )
+        return self
+
+    @model_validator(mode="after")
+    def approved_requires_resolved_biology(self) -> Self:
+        if self.human_review.status is not ReviewStatus.APPROVED:
+            return self
+        if self.organism.taxon_id is None:
+            raise SchemaError(
+                "An approved manifest must include organism.taxon_id.",
+                how_to_fix="Look up the NCBI Taxonomy ID and set organism.taxon_id before approving.",
+            )
+        if self.design.sampling_design is SamplingDesign.UNDECLARED:
+            raise SchemaError(
+                "An approved manifest cannot leave sampling_design undeclared.",
+                how_to_fix="Set longitudinal or repeated_cross_sectional after a person inspects the sample sheet.",
+            )
+        if self.design.pairing_level is PairingLevel.UNDECLARED:
+            raise SchemaError(
+                "An approved manifest cannot leave pairing_level undeclared.",
+                how_to_fix="Prove pairing with biospecimen IDs, or set group_level_only.",
             )
         return self
 

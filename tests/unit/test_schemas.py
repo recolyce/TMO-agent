@@ -89,6 +89,14 @@ def test_group_level_only_rejects_sample_level_forecast() -> None:
         )
 
 
+def test_approved_manifest_rejects_undeclared_design() -> None:
+    payload = load_manifest(Path("config/dataset.example.yaml")).model_dump(mode="json")
+    payload["design"]["sampling_design"] = "undeclared"
+    payload["design"]["longitudinal"] = None
+    with pytest.raises(SchemaError, match="undeclared"):
+        DatasetManifest.model_validate(payload)
+
+
 def test_experiment_rejects_unknown_keys() -> None:
     payload = load_experiment(Path("config/experiment.example.yaml")).model_dump(mode="json")
     payload["secret_override_test"] = True

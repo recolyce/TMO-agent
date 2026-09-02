@@ -52,7 +52,7 @@ def load_local_bundle(manifest_path: Path) -> MultiOmicsBundle:
     )
     matrices: dict[str, pd.DataFrame] = {}
     for spec in manifest.files:
-        if spec.role != "matrix" or spec.path is None:
+        if spec.role.value != "matrix" or spec.path is None:
             continue
         matrix_path = manifest.resolve_path(manifest_path, spec.path)
         frame = _read_table(matrix_path)

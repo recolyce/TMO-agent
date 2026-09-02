@@ -47,6 +47,20 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def md5_file(path: Path) -> str:
+    """MD5 hex digest used only to verify a publisher-provided MD5.
+
+    Do not use MD5 as the pipeline's own integrity hash. Record SHA-256
+    alongside any official MD5 check.
+    """
+
+    digest = hashlib.md5()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def canonical_json(payload: Any) -> bytes:
     """Serialize ``payload`` with sorted keys for stable hashing."""
 

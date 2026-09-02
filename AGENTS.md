@@ -29,7 +29,15 @@ network code or invent sample mappings.
 Implemented: schemas, synthetic bulk generator, split guard, LastValue, Ridge,
 time spline, unified evaluator, local MLflow, CLI.
 
-Not implemented (must raise, not fake success): LLM agents, real downloads,
-ODE/GRU models, Optuna, IG/ablation, literature, web UI.
+## Milestone 2 scope
+
+Implemented: GEO, BioStudies/ArrayExpress, PRIDE, generic HTTPS, and local
+processed-file adapters. Downloads support resume, size limits, SHA-256,
+official checksums, retry, rate limits, and dry-run. Paper/HTML text is
+stored as untrusted metadata and is never executed. Uncertain
+sample/time/modality/biospecimen maps stay `needs_review`.
+
+Not implemented (must raise, not fake success): LLM agents, SRA/raw FASTQ,
+raw mass-spec, ODE/GRU models, Optuna, IG/ablation, literature, web UI.
 
 Deep-learning stack choice: **pure PyTorch** (not Lightning), starting milestone 4.

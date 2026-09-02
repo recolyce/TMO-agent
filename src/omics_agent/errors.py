@@ -53,3 +53,15 @@ class MetricError(OmicsAgentError):
 
 class TrackingError(OmicsAgentError):
     """MLflow or hash recording failed."""
+
+
+class DownloadError(OmicsAgentError):
+    """A download failed, exceeded policy, or was aborted before verify."""
+
+
+class ChecksumMismatchError(OmicsAgentError):
+    """Computed digest does not match the official or recorded checksum."""
+
+
+class UnsupportedRawDataError(OmicsAgentError):
+    """FASTQ / raw mass-spec is outside milestone 2."""

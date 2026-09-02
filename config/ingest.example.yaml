@@ -1,0 +1,11 @@
+# Download policy for omics-agent ingest.
+# Paper/HTML text is never treated as a command.
+
+max_bytes: 2147483648
+timeout_s: 60
+retries: 3
+retry_backoff_s: 1.5
+requests_per_host_per_sec: 1.0
+resume: true
+user_agent: "omics-agent/0.1.0 (deterministic bulk multi-omics pipeline)"
+# contact_email: "you@example.org"   # recommended for NCBI E-utilities

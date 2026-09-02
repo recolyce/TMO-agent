@@ -155,6 +155,14 @@ def assert_task_matches_design(
             f"Task refers to unknown modalities {unknown}.",
             how_to_fix=f"Declared modalities are {modalities}.",
         )
+    if sampling_design is SamplingDesign.UNDECLARED or pairing_level is PairingLevel.UNDECLARED:
+        raise SchemaError(
+            "Cannot bind a prediction task while sampling_design or pairing_level is undeclared.",
+            how_to_fix=(
+                "Finish human review of the sample sheet. The ingest step will not guess "
+                "whether the study is longitudinal or repeated cross-sectional."
+            ),
+        )
     if task.kind is TaskKind.SUBJECT_FORECAST:
         if sampling_design is not SamplingDesign.LONGITUDINAL:
             raise SchemaError(

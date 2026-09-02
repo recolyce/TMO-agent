@@ -54,6 +54,7 @@ package = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-q --strict-markers"
 markers = [
     "integration: slower end-to-end checks on synthetic data",

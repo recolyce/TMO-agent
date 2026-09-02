@@ -10,6 +10,7 @@ from omics_agent.schemas.enums import (
 )
 from omics_agent.schemas.evaluation import EvaluationReport
 from omics_agent.schemas.experiment import ExperimentConfig, load_experiment
+from omics_agent.schemas.ingest import IngestManifest, IngestRequest
 from omics_agent.schemas.samples import SampleSheet, load_sample_sheet
 from omics_agent.schemas.state import ResearchState
 
@@ -24,6 +25,8 @@ __all__ = [
     "SplitName",
     "Stage",
     "TaskKind",
+    "IngestManifest",
+    "IngestRequest",
     "load_experiment",
     "load_manifest",
     "load_sample_sheet",

@@ -17,9 +17,11 @@ class SourceType(StrEnum):
     BIOSTUDIES = "biostudies"
     PRIDE = "pride"
     MW = "mw"
+    ARRAYEXPRESS = "arrayexpress"
     URL = "url"
     LOCAL = "local"
     SYNTHETIC = "synthetic"
+    DOI = "doi"
 
 
 class SamplingDesign(StrEnum):
@@ -27,6 +29,7 @@ class SamplingDesign(StrEnum):
 
     LONGITUDINAL = "longitudinal"
     REPEATED_CROSS_SECTIONAL = "repeated_cross_sectional"
+    UNDECLARED = "undeclared"
 
 
 class PairingLevel(StrEnum):
@@ -36,6 +39,7 @@ class PairingLevel(StrEnum):
     SAME_BIOSPECIMEN = "same_biospecimen"
     SAME_SUBJECT_TIME = "same_subject_time"
     GROUP_LEVEL_ONLY = "group_level_only"
+    UNDECLARED = "undeclared"
 
 
 class UnitOfIndependence(StrEnum):
@@ -45,6 +49,7 @@ class UnitOfIndependence(StrEnum):
     SUBJECT = "subject"
     EXPERIMENTAL_UNIT = "experimental_unit"
     EXPERIMENT_BATCH = "experiment_batch"
+    UNDECLARED = "undeclared"
 
 
 class ReplicateType(StrEnum):
@@ -108,6 +113,7 @@ class AssayType(StrEnum):
     MICROARRAY = "microarray"
     METABOLOMICS = "metabolomics"
     SYNTHETIC = "synthetic"
+    UNDECLARED = "undeclared"
 
 
 class ValueType(StrEnum):
@@ -119,6 +125,7 @@ class ValueType(StrEnum):
     INTENSITY = "intensity"
     ZSCORE = "zscore"
     SYNTHETIC_ABUNDANCE = "synthetic_abundance"
+    UNDECLARED = "undeclared"
 
 
 class FeatureIdType(StrEnum):
@@ -128,6 +135,27 @@ class FeatureIdType(StrEnum):
     UNIPROT_ACCESSION = "uniprot_accession"
     SYNTHETIC_GENE = "synthetic_gene"
     SYNTHETIC_PROTEIN = "synthetic_protein"
+    UNDECLARED = "undeclared"
+
+
+class FileRole(StrEnum):
+    """What a remote or local file is allowed to be used as."""
+
+    MATRIX = "matrix"
+    SAMPLE_SHEET = "sample_sheet"
+    EDGES = "edges"
+    METADATA = "metadata"
+    ARCHIVE = "archive"
+    UNKNOWN = "unknown"
+    REJECTED_RAW = "rejected_raw"
+    OTHER = "other"
+
+
+class ChecksumAlg(StrEnum):
+    """Algorithms we will *verify* against a publisher-provided digest."""
+
+    SHA256 = "sha256"
+    MD5 = "md5"
 
 
 class HistoryPolicy(StrEnum):
