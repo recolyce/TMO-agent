@@ -14,6 +14,8 @@
 
 里程碑 6：版本化 `PriorBundle`（hash + version + 许可 + 物种）和三种可消融先验——Reactome pathway activity、带 edge type / evidence / score 的 graph Laplacian、冻结 embedding 的 projection/gate。**STRING functional association 不能标成 physical PPI 或因果**。五种配置（no-prior / graph-only / embedding-only / combined / degree-matched random-graph）共用同一 evaluator、同一锁定 split、同一 HPO budget；对照表给出效果差（相对 no-prior 的 ΔMSE / ΔPCC）、参数量、运行时间和多 seed 95% CI。真实图与随机图没有稳定差异时，报告明确写不能声称生物学增益。冻结 embedding 的首选模型是 **Uni-Mol**（本地 `/root/workspace/Uni-Mol`，MIT，只吃显式 SMILES 对照表，CI 用 mock、不跑 setup.py / 不下载权重）；合成 RNA/蛋白面板没有结构时用 `synthetic_pathway_onehot` fixture，**不会**把基因/蛋白 ID 当成 SMILES。
 
+里程碑 7：对冻结动力学模型做 Captum Integrated Gradients（多个 baseline）、group feature ablation 和分层 permutation，跨 seed / fold / bootstrap 汇总 attribution stability。候选表标记 `prior_edge_used`、`embedding_supported`、`ablation_delta`。**只有通过预注册稳定阈值的 top-N 才会查** PubMed E-utilities / Europe PMC；保存 query、日期、PMID、DOI、关系方向、场景、supports/contradicts、A–B–C–D–N–X。PMID/DOI 做真实性校验，`reviewer_status` 保持 `needs_review`。报告只能称 **hypothesis**；level N 写成「在本次检索范围内未找到直接证据」，不得由缺文献宣称首次发现或因果。
+
 ## 你需要什么
 
 - Python 3.11（`uv` 会帮你安装）
@@ -130,6 +132,16 @@ uv run omics-agent ablate-priors --experiment config/experiment.priors.example.y
 
 写出 `reports/prior_ablation.md`（ΔMSE / ΔPCC vs no-prior、参数量、秒数、多种子 CI）和 `priors/bundle.yaml`（版本化 PriorBundle）。`combined` 同时打开通路特征、Laplacian 和冻结 embedding gate；`random_graph` 是度匹配负对照。STRING 边的 `edge_type` 只能是 `functional_association`。换 Uni-Mol 表示时加上 `--smiles-map config/feature_smiles.example.tsv --embedding-model unimol`（基因/蛋白 ID 必须先有人写好 SMILES，流水线不会猜）。
 
+冻结模型解释 + 文献核验（里程碑 7，仅 validation）：
+
+```bash
+uv run omics-agent explain --experiment config/experiment.explain.example.yaml --model gru
+uv run omics-agent literature-check --experiment config/experiment.explain.example.yaml \
+  --candidates outputs/m7/run/reports/candidates.json
+```
+
+写出 `reports/candidates.md`（稳定性、`prior_edge_used` / `embedding_supported` / `ablation_delta`）和可选的 `reports/literature.md`。`claim_kind` 固定为 `hypothesis`。
+
 只演练、不写文件：
 
 ```bash
@@ -170,6 +182,8 @@ uv run omics-agent benchmark --experiment config/experiment.example.yaml --dry-r
 | `mlruns/` | 本地 MLflow |
 | `priors/bundle.yaml` | 版本化 PriorBundle（边 / 通路 / 冻结 embedding + hash） |
 | `reports/prior_ablation.md` | 五臂对照：效果差、参数量、运行时间、多种子 CI |
+| `reports/candidates.md` | 冻结模型 attribution 假设：稳定性、先验标记、ablation_delta |
+| `reports/literature.md` | 仅稳定 top-N 的 PubMed / Europe PMC 证据表（hypothesis） |
 
 常数特征的 PCC 是 **NA**，同时报告有效特征数，不会偷偷写成 0。
 

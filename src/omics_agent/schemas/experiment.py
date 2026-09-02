@@ -20,6 +20,7 @@ from omics_agent.schemas.enums import (
     SplitName,
     TaskKind,
 )
+from omics_agent.schemas.interpretation import InterpretationConfig
 from omics_agent.schemas.optimization import OptimizationConfig
 from omics_agent.schemas.preprocess import ModalityPreprocessConfig
 from omics_agent.schemas.priors import PriorAblationConfig
@@ -136,6 +137,7 @@ class ExperimentConfig(StrictModel):
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
     priors: PriorAblationConfig = Field(default_factory=PriorAblationConfig)
+    interpretation: InterpretationConfig = Field(default_factory=InterpretationConfig)
     output_dir: Path | None = None
 
     def load_dataset_design(self, experiment_path: Path) -> tuple[SamplingDesign, PairingLevel, list[str]]:

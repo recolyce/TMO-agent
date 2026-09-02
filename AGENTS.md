@@ -105,5 +105,27 @@ feature→SMILES TSV; gene/protein IDs are never guessed as structures.
 `synthetic_pathway_onehot` remains the CI fixture. `esm` is registered
 and raises until a sequence adapter exists.
 
+## Milestone 7 scope
+
+Implemented: Captum Integrated Gradients on a frozen dynamics checkpoint
+(zeros / train-mean / last-observation baselines; Riemann fallback if
+Captum is missing), group feature ablation, and condition-stratified
+permutation. Stability is aggregated across donor bootstrap, unit folds,
+IG baselines, and permutation seeds (mean attribution, sign consistency,
+rank median, selection frequency, bootstrap CI, ablation_delta,
+permutation_delta). The candidate table marks `prior_edge_used`,
+`embedding_supported`, `de_novo_model_edge`, and `ablation_delta`.
+Explain is validation-only (`objective_split` is literally `"val"`,
+`test_labels_visible` is literally `False`). Only candidates that pass
+the pre-registered stability thresholds (top-N) are sent to PubMed
+E-utilities and Europe PMC adapters (mockable `HttpTransport`; CI never
+hits the network). Each literature row stores query, searched_at, PMID,
+DOI, relation direction, scenario flags, supports/contradicts/unrelated,
+and A/B/C/D/N/X. PMID/DOI format + identity checks are fail-closed;
+`reviewer_status` is always `needs_review` when written by the pipeline.
+Reports are `claim_kind: hypothesis`. Level N is
+「在本次检索范围内未找到直接证据」. Absence of a hit is never novelty
+or causation.
+
 Not implemented (must raise, not fake success): LLM agents, SRA/raw FASTQ,
-raw mass-spec, IG/ablation, literature, web UI, live prior-database ingest.
+raw mass-spec, web UI, live prior-database ingest.

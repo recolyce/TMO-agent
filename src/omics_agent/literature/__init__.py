@@ -1,14 +1,11 @@
-"""PubMed / Europe PMC evidence tables. Not implemented in milestone 1."""
+"""PubMed E-utilities / Europe PMC evidence tables for stable candidates."""
 
-from omics_agent.errors import OmicsAgentError
+from omics_agent.literature.check import run_literature_check, run_literature_from_table
+from omics_agent.literature.sources import EuropePmcAdapter, PubMedAdapter
 
-
-def require_literature() -> None:
-    raise OmicsAgentError(
-        "Literature search is not part of milestone 1.",
-        how_to_fix=(
-            "Do not describe missing papers as a first discovery. "
-            "When this module exists, absence of evidence must be written as "
-            "'在本次检索范围内未找到直接证据'."
-        ),
-    )
+__all__ = [
+    "EuropePmcAdapter",
+    "PubMedAdapter",
+    "run_literature_check",
+    "run_literature_from_table",
+]

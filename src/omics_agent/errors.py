@@ -85,3 +85,11 @@ class TrainingDivergedError(OmicsAgentError):
 
 class PriorError(OmicsAgentError):
     """A prior bundle is missing, mislabelled, or scientifically illegal."""
+
+
+class InterpretationError(OmicsAgentError):
+    """Attribution, ablation, or stability screening failed."""
+
+
+class LiteratureError(OmicsAgentError):
+    """PubMed / Europe PMC lookup or PMID/DOI verification failed."""

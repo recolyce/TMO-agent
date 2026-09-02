@@ -14,6 +14,8 @@ from omics_agent import __version__
 from omics_agent.data_sources.ingest import load_ingest_manifest, run_ingest
 from omics_agent.data_sources.synthetic import generate_synthetic_dataset
 from omics_agent.errors import OmicsAgentError
+from omics_agent.interpretation.runner import run_explanation
+from omics_agent.literature.check import run_literature_from_table
 from omics_agent.optimization import run_final_test, run_tuning
 from omics_agent.pipeline import run_benchmark, run_preprocess, write_experiment_yaml
 from omics_agent.priors.ablation import run_prior_ablation
@@ -137,6 +139,16 @@ def doctor() -> None:
             "rdkit",
             "optional",
             "not installed; live Uni-Mol needs rdkit. CI uses a mock extractor.",
+        )
+    try:
+        import captum  # noqa: F401
+
+        table.add_row("captum", "ok", "Integrated Gradients uses Captum")
+    except ImportError:
+        table.add_row(
+            "captum",
+            "optional",
+            "not installed; IG uses an in-repo Riemann fallback (same path integral)",
         )
     console.print(table)
     if not all_ok:
@@ -418,6 +430,66 @@ def ablate_priors(
             n_trials=n_trials,
             embedding_model=embedding_model,
             smiles_map=smiles_map,
+        )
+    except OmicsAgentError as exc:
+        _fail(exc)
+    console.print(result)
+
+
+@app.command("explain")
+def explain(
+    experiment: Annotated[Path, typer.Option(help="Path to experiment.yaml")],
+    model: Annotated[str, typer.Option(help="Frozen dynamics model: gru | ode_rnn | latent_ode")],
+    output_dir: Annotated[Path | None, typer.Option(help="Override output directory")] = None,
+    checkpoint: Annotated[
+        Path | None, typer.Option(help="Directory with card.json + model.pt")
+    ] = None,
+    with_literature: Annotated[
+        bool, typer.Option(help="Search PubMed/Europe PMC for stable top-N only")
+    ] = False,
+) -> None:
+    """Integrated Gradients, group ablation, and stratified permutation.
+
+    Runs on the frozen checkpoint and the validation split. Test labels stay
+    hidden. Rows are hypotheses, not causal claims. Literature is queried
+    only for candidates that pass the pre-registered stability thresholds.
+    """
+
+    try:
+        result = run_explanation(
+            experiment,
+            model_name=model,
+            output_dir=output_dir,
+            checkpoint=checkpoint,
+            with_literature=with_literature,
+        )
+    except OmicsAgentError as exc:
+        _fail(exc)
+    console.print(result)
+
+
+@app.command("literature-check")
+def literature_check(
+    experiment: Annotated[Path, typer.Option(help="Path to experiment.yaml")],
+    candidates: Annotated[Path, typer.Option(help="candidates.json from omics-agent explain")],
+    output_dir: Annotated[Path | None, typer.Option(help="Override output directory")] = None,
+) -> None:
+    """PubMed E-utilities + Europe PMC for stable candidates only.
+
+    Unstable rows in the table are ignored. Level N is written as
+    在本次检索范围内未找到直接证据. reviewer_status stays needs_review.
+    """
+
+    from omics_agent.schemas.experiment import load_experiment
+
+    try:
+        cfg = load_experiment(experiment)
+        dest = output_dir or cfg.output_dir or Path("outputs") / cfg.experiment_id
+        result = run_literature_from_table(
+            candidates,
+            experiment_id=cfg.experiment_id,
+            config=cfg.interpretation.literature,
+            dest=Path(dest) / "reports",
         )
     except OmicsAgentError as exc:
         _fail(exc)

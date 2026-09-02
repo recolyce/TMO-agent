@@ -1,10 +1,6 @@
-"""Integrated Gradients, ablation, permutation. Not implemented in milestone 1."""
+"""Integrated Gradients, group ablation, stratified permutation, stability."""
 
-from omics_agent.errors import OmicsAgentError
+from omics_agent.interpretation.runner import load_candidates, run_explanation
+from omics_agent.interpretation.stability import select_stable
 
-
-def require_interpretation() -> None:
-    raise OmicsAgentError(
-        "Attribution methods are not part of milestone 1.",
-        how_to_fix="Ridge and time-spline expose coefficients via explain(); IG/ablation come later. Coefficients are not causal.",
-    )
+__all__ = ["load_candidates", "run_explanation", "select_stable"]

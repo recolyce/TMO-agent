@@ -37,7 +37,7 @@ dev = [
 ]
 # Pure PyTorch is the chosen deep-learning stack (not Lightning).
 # Milestone 1 baselines do not import torch; install this extra from milestone 4.
-torch = ["torch>=2.4,<3"]
+torch = ["torch>=2.4,<3", "captum>=0.7"]
 workflow = ["snakemake>=8.20,<10"]
 
 [project.scripts]
@@ -100,5 +100,7 @@ module = [
     "scipy",
     "scipy.*",
     "joblib",
+    "captum",
+    "captum.*",
 ]
 ignore_missing_imports = true

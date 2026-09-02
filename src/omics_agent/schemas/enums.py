@@ -199,3 +199,46 @@ class EmbeddingModelName(StrEnum):
     UNIMOL = "unimol"
     SYNTHETIC_PATHWAY_ONEHOT = "synthetic_pathway_onehot"
     ESM = "esm"
+
+
+class IgBaselineName(StrEnum):
+    """Integrated Gradients baselines. Multiple baselines are required."""
+
+    ZEROS = "zeros"
+    TRAIN_MEAN = "train_mean"
+    LAST_OBSERVATION = "last_observation"
+
+
+class EvidenceLevel(StrEnum):
+    """Literature evidence grades. N is absence in this search, not novelty."""
+
+    A = "A"
+    B = "B"
+    C = "C"
+    D = "D"
+    N = "N"
+    X = "X"
+
+
+class LiteratureStance(StrEnum):
+    """How a paper relates to the model hypothesis. Not a causal verdict."""
+
+    SUPPORTS = "supports"
+    CONTRADICTS = "contradicts"
+    UNRELATED = "unrelated"
+
+
+class RelationDirection(StrEnum):
+    """Predicted or reported direction. Unknown stays unknown."""
+
+    UP = "up"
+    DOWN = "down"
+    UNKNOWN = "unknown"
+
+
+class LiteratureReviewerStatus(StrEnum):
+    """Human review of a literature row. The pipeline never auto-accepts."""
+
+    NEEDS_REVIEW = "needs_review"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"

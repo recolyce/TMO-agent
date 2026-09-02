@@ -1,0 +1,56 @@
+# Milestone-7 attribution + literature. Validation only; test stays locked.
+#
+#   uv sync --extra dev --extra torch
+#   uv run omics-agent generate-synthetic --output-dir outputs/m7/data --design longitudinal
+#   uv run omics-agent benchmark --experiment config/experiment.explain.example.yaml
+#   # or: fit/tune first so outputs/m7/run/frozen/gru/checkpoint exists
+#   uv run omics-agent explain --experiment config/experiment.explain.example.yaml --model gru
+#   uv run omics-agent literature-check --experiment config/experiment.explain.example.yaml \
+#       --candidates outputs/m7/run/reports/candidates.json
+#
+# Rows are hypotheses. Level N = 在本次检索范围内未找到直接证据.
+schema_version: "1.0"
+experiment_id: m7_explain
+dataset: ../outputs/m7/data/dataset.yaml
+seed: 20260901
+task:
+  kind: subject_forecast
+  target_modality: protein
+  input_modalities: [rna, protein]
+  primary_metric: protein_macro_pcc
+split:
+  group_columns: [experimental_unit_id, subject_id]
+  fractions: {train: 0.6, val: 0.2, test: 0.2}
+  block_experiment_batch: false
+models:
+  - name: gru
+    params:
+      epochs: 40
+      batch_size: 64
+      hidden_dim: 32
+      emb_dim: 24
+      lr: 0.003
+      device: auto
+      seed: 20260901
+optimization:
+  n_trials: 1
+evaluation:
+  bootstrap_replicates: 50
+  unlock_test: false
+interpretation:
+  n_ig_steps: 16
+  baselines: [zeros, train_mean, last_observation]
+  n_bootstrap: 5
+  n_seeds: 5
+  n_folds: 2
+  top_k_per_target: 5
+  top_n: 20
+  min_sign_consistency: 0.6
+  min_selection_frequency: 0.4
+  min_stability: 0.4
+  literature:
+    top_n: 20
+    max_hits_per_source: 5
+    species_taxon_id: 9606
+    organism: human
+output_dir: outputs/m7/run

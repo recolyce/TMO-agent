@@ -431,16 +431,9 @@ class _DynamicsBase:
         self._device = device
 
     def explain(self, data: DataForModel, targets: list[str]) -> AttributionTable:
-        del data, targets
-        return AttributionTable(
-            model_name=self.name,
-            method="none",
-            rows=[],
-            caveat=(
-                "Attribution for dynamics models arrives with the interpretation "
-                "milestone (integrated gradients). Attribution is not causation."
-            ),
-        )
+        from omics_agent.interpretation.ig import integrated_gradients_table
+
+        return integrated_gradients_table(self, data, targets)
 
 
 @register_model

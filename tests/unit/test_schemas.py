@@ -33,6 +33,13 @@ def test_example_priors_experiment_uses_fixture_embeddings() -> None:
     assert cfg.priors.embedding.name.value == "synthetic_pathway_onehot"
 
 
+def test_example_explain_experiment_is_hypothesis_only() -> None:
+    cfg = load_experiment(Path("config/experiment.explain.example.yaml"))
+    assert cfg.interpretation.top_n == 20
+    assert len(cfg.interpretation.baselines) == 3
+    assert cfg.interpretation.literature.top_n == 20
+
+
 def test_manifest_rejects_missing_time_unit() -> None:
     payload = load_manifest(Path("config/dataset.example.yaml")).model_dump(mode="json")
     payload["design"].pop("time_unit")
