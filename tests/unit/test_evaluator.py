@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from omics_agent.evaluation.evaluator import evaluate_predictions
-from omics_agent.evaluation.metrics import correlation
+from omics_agent.evaluation.bootstrap import bootstrap_unit_metrics
+from omics_agent.evaluation.evaluator import _macro_r2, evaluate_predictions
+from omics_agent.evaluation.metrics import correlation, r2_score
 
 
 def test_constant_feature_pcc_is_na() -> None:
@@ -63,3 +65,32 @@ def test_coverage_counts_only_observed_targets() -> None:
     assert report.n_observed_targets == 3
     assert report.n_possible_targets == 4
     assert report.coverage == 0.75
+
+
+def test_bootstrap_r2_is_macro_not_pooled() -> None:
+    """A high-variance feature must not dominate the bootstrap R2 (rule 5)."""
+
+    import inspect
+
+    from omics_agent.evaluation import bootstrap as boot_mod
+
+    y_true = np.array([[0.0, 0.0], [1.0, 10.0], [2.0, 20.0], [3.0, 30.0]])
+    y_pred = np.array([[0.0, 5.0], [1.0, 5.0], [2.0, 5.0], [3.0, 5.0]])
+    pooled = r2_score(y_true, y_pred)
+    macro, _ = _macro_r2(y_true, y_pred)
+    boot_macro, _ = boot_mod._macro_r2(y_true, y_pred)
+    assert pooled is not None and macro is not None
+    assert pooled != pytest.approx(macro, abs=0.05)
+    assert boot_macro == pytest.approx(macro)
+    source = inspect.getsource(boot_mod.bootstrap_unit_metrics)
+    assert "_macro_r2" in source
+    assert "r2_score(yt_m, yp_m)" not in source
+    cis = bootstrap_unit_metrics(
+        y_true=y_true,
+        y_pred=y_pred,
+        mask=np.ones_like(y_true, dtype=bool),
+        group_ids=["a", "b", "c", "d"],
+        n_replicates=20,
+        seed=3,
+    )
+    assert any(item.metric == "r2" for item in cis)

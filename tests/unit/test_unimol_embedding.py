@@ -159,6 +159,23 @@ def test_load_smiles_map_reads_example() -> None:
     assert mapping[("metabolite", "benzene")] == "c1ccccc1"
 
 
+def test_unimol_live_path_refuses_unpinned_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from omics_agent.priors import unimol as unimol_mod
+
+    monkeypatch.setattr(unimol_mod, "git_commit", lambda _repo: "0" * 40)
+    smiles_map = _write_map(tmp_path / "smiles.tsv", [("rna", "G01", "CCO")])
+    with pytest.raises(PriorError, match="pinned"):
+        extract_unimol_embeddings(
+            {"rna": ["G01"]},
+            EmbeddingModelConfig(name=EmbeddingModelName.UNIMOL, smiles_map=smiles_map),
+            experiment_dir=tmp_path,
+            species_taxon_id=9606,
+            repr_fn=None,
+        )
+
+
 def test_adapter_records_local_commit_without_importing_weights() -> None:
     adapter = UniMolEmbeddingAdapter(repr_fn=_fake_repr)
     sha = adapter.source_commit()

@@ -13,7 +13,13 @@ from omics_agent.interpretation.perturb import group_feature_ablation, stratifie
 from omics_agent.interpretation.stability import assemble_candidates, select_stable
 from omics_agent.models import get_model
 from omics_agent.models.tasks import DataForModel, prepare_split_data
-from omics_agent.pipeline import PACKAGE_ROOT, REPO_ROOT, _assert_fit_split_train, _resolve
+from omics_agent.pipeline import (
+    PACKAGE_ROOT,
+    REPO_ROOT,
+    _assert_feature_maps_trainable,
+    _assert_fit_split_train,
+    _resolve,
+)
 from omics_agent.reporting.tracking import log_benchmark_run
 from omics_agent.schemas.enums import SplitName
 from omics_agent.schemas.experiment import assert_task_matches_design, load_experiment
@@ -49,6 +55,7 @@ def run_explanation(
     dest = output_dir or experiment.output_dir or Path("outputs") / experiment.experiment_id
     dest = dest.resolve()
     dest.mkdir(parents=True, exist_ok=True)
+    _assert_feature_maps_trainable(dest)
 
     if train_data is None or val_data is None:
         manifest_path = _resolve(experiment_path, experiment.dataset)

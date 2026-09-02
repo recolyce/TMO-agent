@@ -99,6 +99,7 @@ def run_benchmark(
         return plan
 
     dest.mkdir(parents=True, exist_ok=True)
+    _assert_feature_maps_trainable(dest)
     bundle = load_local_bundle(manifest_path)
     splits = assign_splits(bundle, experiment.split, seed=experiment.seed)
     split_path = dest / "splits.parquet"
@@ -357,6 +358,20 @@ def write_experiment_yaml(path: Path, config: ExperimentConfig) -> None:
     if config.output_dir is not None:
         payload["output_dir"] = str(config.output_dir)
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+
+def _assert_feature_maps_trainable(dest: Path) -> None:
+    """Refuse to fit or score while a recorded feature map still has 1:N IDs."""
+
+    path = dest / "feature_map.json"
+    if not path.is_file():
+        return
+    from omics_agent.schemas.features import FeatureMap
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    for raw in payload.values():
+        body = {key: value for key, value in raw.items() if key != "summary"}
+        FeatureMap.model_validate(body).assert_ready_for_training()
 
 
 def _assert_fit_split_train(bundle: MultiOmicsBundle) -> None:

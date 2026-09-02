@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from omics_agent.errors import SplitLeakageError
+from omics_agent.errors import SchemaError, SplitLeakageError
 from omics_agent.preprocessing.bundle import MultiOmicsBundle
 from omics_agent.schemas.enums import SplitName
 from omics_agent.schemas.experiment import SplitConfig, SplitFractions
@@ -62,6 +62,27 @@ def test_longitudinal_split_has_no_subject_overlap(longitudinal_bundle: MultiOmi
     )
     assert_no_group_leakage(splits, ["experimental_unit_id", "subject_id", "biospecimen_id"])
     assert set(splits["split"]) == {"train", "val", "test"}
+
+
+def test_split_config_cannot_drop_unit_and_subject_guards() -> None:
+    """Rule 1: a YAML that only groups by batch must still guard subjects."""
+
+    with pytest.raises(SchemaError, match="experimental_unit_id"):
+        SplitConfig(group_columns=["batch"], also_block=[])
+
+
+def test_with_split_rejects_conflicting_unit_labels(longitudinal_bundle: MultiOmicsBundle) -> None:
+    """The same experimental_unit_id must not map to two splits (last-wins is leakage)."""
+
+    unit = str(longitudinal_bundle.observations["experimental_unit_id"].iloc[0])
+    frame = pd.DataFrame(
+        {
+            "experimental_unit_id": [unit, unit],
+            "split": ["train", "test"],
+        }
+    )
+    with pytest.raises(SplitLeakageError, match="experimental_unit_id"):
+        longitudinal_bundle.with_split(frame)
 
 
 def test_rcs_split_blocks_experiment_batch(rcs_bundle: MultiOmicsBundle) -> None:

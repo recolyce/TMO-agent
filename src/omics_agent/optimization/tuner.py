@@ -36,7 +36,13 @@ from omics_agent.models import get_model
 from omics_agent.models.tasks import DataForModel, prepare_split_data
 from omics_agent.optimization.lock import assert_tuning_allowed
 from omics_agent.optimization.search_space import suggest_params
-from omics_agent.pipeline import PACKAGE_ROOT, REPO_ROOT, _assert_fit_split_train, _resolve
+from omics_agent.pipeline import (
+    PACKAGE_ROOT,
+    REPO_ROOT,
+    _assert_feature_maps_trainable,
+    _assert_fit_split_train,
+    _resolve,
+)
 from omics_agent.reporting.tracking import log_benchmark_run
 from omics_agent.schemas.dataset import load_manifest
 from omics_agent.schemas.enums import SplitName
@@ -130,6 +136,7 @@ def run_tuning(
     study_name = f"{experiment.experiment_id}::{model_name}"
 
     dest.mkdir(parents=True, exist_ok=True)
+    _assert_feature_maps_trainable(dest)
     bundle = load_local_bundle(manifest_path)
     splits = assign_splits(bundle, experiment.split, seed=experiment.seed)
     split_path = dest / "splits.parquet"

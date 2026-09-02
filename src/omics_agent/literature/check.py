@@ -79,22 +79,22 @@ def pmid_is_well_formed(pmid: str | None) -> bool:
 
 
 def verify_hit(hit: PaperHit, pubmed: PubMedAdapter | None) -> tuple[bool, bool]:
-    """Format + identity checks. A fabricated PMID/DOI fails closed."""
+    """Format + identity checks. A fabricated PMID/DOI fails closed.
 
-    pmid_ok = pmid_is_well_formed(hit.pmid)
-    doi_ok = doi_is_well_formed(hit.doi)
-    if pmid_ok and pubmed is not None and hit.pmid:
+    A well-formed DOI without a matching PubMed identity check is not authentic.
+    """
+
+    pmid_ok = False
+    doi_ok = False
+    if pmid_is_well_formed(hit.pmid) and pubmed is not None and hit.pmid:
         summaries = pubmed.summarize([hit.pmid])
-        if not summaries:
-            pmid_ok = False
-        else:
+        if summaries:
             rec = summaries[0]
-            if rec.pmid != hit.pmid:
+            pmid_ok = rec.pmid == hit.pmid
+            if pmid_ok and hit.title and rec.title and _norm(hit.title) != _norm(rec.title):
                 pmid_ok = False
-            if hit.title and rec.title and _norm(hit.title) != _norm(rec.title):
-                pmid_ok = False
-            if hit.doi and rec.doi and _norm(hit.doi) != _norm(rec.doi):
-                doi_ok = False
+            if pmid_ok and doi_is_well_formed(hit.doi):
+                doi_ok = rec.doi is None or _norm(hit.doi) == _norm(rec.doi)
     return pmid_ok, doi_ok
 
 

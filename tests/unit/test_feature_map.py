@@ -50,6 +50,8 @@ def test_static_table_keeps_one_to_many_and_unmapped() -> None:
     frame = feature_map.to_frame()
     assert len(frame) == 4  # 2 + 1 + 1 unmapped placeholder row
     assert frame.loc[frame["source_id"] == "P3", "unmapped"].all()
+    with pytest.raises(SchemaError, match="one-to-many"):
+        feature_map.assert_ready_for_training()
 
 
 def test_static_table_requires_columns() -> None:

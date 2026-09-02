@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from omics_agent.cli import app
 from omics_agent.data_sources.local import load_local_bundle
+from omics_agent.errors import SchemaError
 from omics_agent.pipeline import run_benchmark, write_experiment_yaml
 from omics_agent.schemas.enums import SamplingDesign, SplitName
 from omics_agent.schemas.experiment import (
@@ -147,6 +149,8 @@ def test_preprocess_with_id_map_keeps_one_to_many(longitudinal_dir: Path, tmp_pa
     # A table that says nothing about protein leaves protein IDs as-is.
     assert feature_map["protein"]["mapping_source"] == "identity"
     assert result["feature_map_summary"]["rna"]["n_pairs"] >= 2
+    with pytest.raises(SchemaError, match="one-to-many"):
+        run_benchmark(exp_path, output_dir=tmp_path / "prep2", unlock_test=True)
 
 
 def test_rcs_assignment_uses_group_time_forecast(rcs_dir: Path, tmp_path: Path) -> None:
@@ -165,7 +169,7 @@ def test_rcs_assignment_uses_group_time_forecast(rcs_dir: Path, tmp_path: Path) 
         split=SplitConfig(
             group_columns=["batch"],
             block_experiment_batch=True,
-            also_block=["experimental_unit_id"],
+            also_block=["experimental_unit_id", "subject_id"],
             assignment={
                 "expA": SplitName.TRAIN,
                 "expB": SplitName.VAL,

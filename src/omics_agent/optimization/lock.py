@@ -28,12 +28,18 @@ from omics_agent.hashing import (
 )
 from omics_agent.models import get_model
 from omics_agent.models.tasks import prepare_split_data
-from omics_agent.pipeline import PACKAGE_ROOT, _assert_fit_split_train, _resolve
+from omics_agent.pipeline import (
+    PACKAGE_ROOT,
+    _assert_feature_maps_trainable,
+    _assert_fit_split_train,
+    _resolve,
+)
 from omics_agent.reporting.benchmark import write_benchmark_report
 from omics_agent.reporting.tracking import log_benchmark_run
 from omics_agent.schemas.enums import SplitName
 from omics_agent.schemas.experiment import load_experiment
 from omics_agent.schemas.optimization import FreezeManifest, TestLockState
+from omics_agent.splitting.guard import assert_no_group_leakage
 
 LOCK_FILENAME = "test_lock.json"
 
@@ -91,10 +97,12 @@ def run_final_test(
     """Verify the frozen artifact, then score the test split exactly once."""
 
     experiment_path = experiment_path.resolve()
-    experiment = load_experiment(experiment_path)
+    live_experiment = load_experiment(experiment_path)
+    experiment = live_experiment
     manifest_path = _resolve(experiment_path, experiment.dataset)
     dest = output_dir or experiment.output_dir or Path("outputs") / experiment.experiment_id
     dest = dest.resolve()
+    _assert_feature_maps_trainable(dest)
 
     lock = read_lock(dest)
     if lock is not None and lock.consumed:
@@ -128,6 +136,21 @@ def run_final_test(
         hash_yaml_file(frozen_dir / "frozen_experiment.yaml") == manifest_doc.frozen_config_hash,
         "frozen experiment config",
     )
+    frozen_exp = load_experiment(frozen_dir / "frozen_experiment.yaml")
+    if frozen_exp.task.model_dump() != live_experiment.task.model_dump():
+        raise ArtifactIntegrityError(
+            "live experiment task does not match the frozen experiment.",
+            how_to_fix=(
+                "unlock-test scores the frozen task, including primary_metric. "
+                "Restore the experiment.yaml used at freeze, or start a new experiment_id."
+            ),
+        )
+    if frozen_exp.preprocessing.model_dump() != live_experiment.preprocessing.model_dump():
+        raise ArtifactIntegrityError(
+            "live experiment preprocessing does not match the frozen experiment.",
+            how_to_fix="Restore the preprocessing block used at freeze. Do not refit on test.",
+        )
+    experiment = frozen_exp
     decision_path = dest / "reports" / f"optimization_decision_{model_name}.json"
     _integrity(
         decision_path.is_file() and sha256_file(decision_path) == manifest_doc.decision_hash,
@@ -137,6 +160,9 @@ def run_final_test(
     _integrity(split_path.is_file(), "split file (missing)")
     splits = pd.read_parquet(split_path)
     _integrity(hash_dataframe(splits) == manifest_doc.split_file_hash, "split assignment")
+    assert_no_group_leakage(
+        splits, ["experimental_unit_id", "subject_id", "biospecimen_id"]
+    )
     _integrity(
         hash_source_tree(PACKAGE_ROOT / "evaluation") == manifest_doc.evaluator_code_hash,
         "evaluator source code",

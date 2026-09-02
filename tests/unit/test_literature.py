@@ -186,6 +186,23 @@ def test_classify_absence_phrase() -> None:
     assert level is EvidenceLevel.N
 
 
+def test_doi_only_hit_is_not_authentic() -> None:
+    """A well-formed DOI without PMID identity check is not verified evidence."""
+
+    hit = PaperHit(
+        source_name="europepmc",
+        pmid=None,
+        doi="10.1234/fabricated.item",
+        title="Invented title",
+        year="2020",
+        abstract="pathway string correlation",
+        raw={},
+    )
+    pmid_ok, doi_ok = verify_hit(hit, pubmed=None)
+    assert pmid_ok is False
+    assert doi_ok is False
+
+
 def test_adapters_are_constructible() -> None:
     assert PubMedAdapter().name == "pubmed_eutils"
     assert EuropePmcAdapter().name == "europepmc"

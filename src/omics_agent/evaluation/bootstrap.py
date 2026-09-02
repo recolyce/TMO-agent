@@ -17,7 +17,7 @@ def bootstrap_unit_metrics(
     n_replicates: int,
     seed: int,
 ) -> list[BootstrapCI]:
-    """Percentile CIs for macro MSE/MAE/PCC/Spearman/R2.
+    """Percentile CIs for MSE/MAE and macro PCC/Spearman/R2.
 
     Each replicate draws units with replacement and concatenates all of
     that unit's instances. Empty or undefined metrics become None.
@@ -53,7 +53,8 @@ def bootstrap_unit_metrics(
         sp, _ = _macro_corr(yt_m, yp_m, "spearman")
         _append(collected, "pcc", pcc)
         _append(collected, "spearman", sp)
-        _append(collected, "r2", r2_score(yt_m, yp_m))
+        r2_macro, _ = _macro_r2(yt_m, yp_m)
+        _append(collected, "r2", r2_macro)
 
     out: list[BootstrapCI] = []
     for name, values in collected.items():
@@ -93,6 +94,20 @@ def _macro_corr(
     n_valid_features = 0
     for j in range(y_true.shape[1]):
         value, n = correlation(y_true[:, j], y_pred[:, j], method=method)
+        if value is None:
+            continue
+        n_valid_features += 1
+        values.append(value)
+    if not values:
+        return None, n_valid_features
+    return float(np.mean(values)), n_valid_features
+
+
+def _macro_r2(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[float | None, int]:
+    values: list[float] = []
+    n_valid_features = 0
+    for j in range(y_true.shape[1]):
+        value = r2_score(y_true[:, j], y_pred[:, j])
         if value is None:
             continue
         n_valid_features += 1

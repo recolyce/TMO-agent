@@ -212,6 +212,22 @@ def test_modified_evaluator_code_is_rejected(
         run_final_test(exp_path, model_name="ridge", output_dir=clone)
 
 
+def test_live_yaml_cannot_replace_frozen_primary_metric(
+    tuned: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """Rule 3: unlock-test must not score a mutated live primary_metric."""
+
+    exp_path, run_dir = tuned
+    clone = _clone(run_dir, tmp_path)
+    live = yaml.safe_load(exp_path.read_text(encoding="utf-8"))
+    live["task"]["primary_metric"] = "mse"
+    mutated = tmp_path / "mutated.yaml"
+    mutated.write_text(yaml.safe_dump(live, sort_keys=False), encoding="utf-8")
+    with pytest.raises(ArtifactIntegrityError, match="live experiment"):
+        run_final_test(mutated, model_name="ridge", output_dir=clone)
+    assert read_lock(clone) is None
+
+
 def test_unlock_test_cli_requires_confirm() -> None:
     result = runner.invoke(
         app, ["unlock-test", "--experiment", "does-not-matter.yaml", "--model", "ridge"]

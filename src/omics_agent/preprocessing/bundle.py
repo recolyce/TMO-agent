@@ -12,7 +12,7 @@ import mudata as md
 import numpy as np
 import pandas as pd
 
-from omics_agent.errors import ManifestError, SchemaError
+from omics_agent.errors import ManifestError, SchemaError, SplitLeakageError
 from omics_agent.preprocessing.qc import per_feature_qc, per_sample_qc
 from omics_agent.preprocessing.scalers import TrainOnlyImputer, TrainOnlyStandardScaler
 from omics_agent.preprocessing.strategies import default_config_for, normalize
@@ -144,10 +144,19 @@ class MultiOmicsBundle:
                 "Split table must contain experimental_unit_id and split.",
                 how_to_fix="Produce splits with omics-agent split.",
             )
+        pairs = split_frame[["experimental_unit_id", "split"]].astype(str).drop_duplicates()
+        conflict = pairs["experimental_unit_id"][pairs["experimental_unit_id"].duplicated()]
+        if not conflict.empty:
+            leaked = sorted(set(conflict.tolist()))
+            raise SplitLeakageError(
+                f"experimental_unit_id has conflicting split labels: {leaked[:12]}. "
+                "Last-wins assignment would hide leakage.",
+                how_to_fix="One split per experimental_unit_id. Re-run omics-agent split.",
+            )
         mapping = dict(
             zip(
-                split_frame["experimental_unit_id"].astype(str),
-                split_frame["split"].astype(str),
+                pairs["experimental_unit_id"],
+                pairs["split"],
                 strict=True,
             )
         )

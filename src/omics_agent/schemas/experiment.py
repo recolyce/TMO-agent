@@ -44,6 +44,29 @@ class TaskConfig(StrictModel):
     )
 
     @model_validator(mode="after")
+    def _primary_is_not_pooled(self) -> Self:
+        allowed = {
+            "mse",
+            "mae",
+            "rmse",
+            "pcc_macro",
+            "spearman_macro",
+            "r2_macro",
+            "protein_macro_pcc",
+            "macro_pcc",
+        }
+        if self.primary_metric not in allowed:
+            raise SchemaError(
+                f"primary_metric '{self.primary_metric}' is not allowed. "
+                "Pooled correlations can be dominated by one high-variance feature.",
+                how_to_fix=(
+                    "Use protein_macro_pcc (or pcc_macro / spearman_macro / r2_macro / "
+                    "mse / mae / rmse). pcc_pooled and r2_pooled cannot be primary."
+                ),
+            )
+        return self
+
+    @model_validator(mode="after")
     def target_is_an_input_or_explicit(self) -> Self:
         if not self.input_modalities:
             raise SchemaError(
@@ -89,6 +112,25 @@ class SplitConfig(StrictModel):
         default=None,
         description="Optional explicit map of group key -> split. Used for RCS batches.",
     )
+
+    @model_validator(mode="after")
+    def _identity_columns_are_guarded(self) -> Self:
+        guarded = set(self.group_columns) | set(self.also_block)
+        missing = [
+            name
+            for name in ("experimental_unit_id", "subject_id")
+            if name not in guarded
+        ]
+        if missing:
+            raise SchemaError(
+                f"split config does not guard {missing}. "
+                "The same experimental unit or subject could leak across splits.",
+                how_to_fix=(
+                    "Keep experimental_unit_id and subject_id in group_columns or also_block. "
+                    "For RCS, group by batch and list those IDs in also_block."
+                ),
+            )
+        return self
 
 
 class ModelParams(StrictModel):

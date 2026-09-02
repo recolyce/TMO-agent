@@ -109,6 +109,16 @@ def test_approved_manifest_rejects_undeclared_design() -> None:
         DatasetManifest.model_validate(payload)
 
 
+def test_pooled_pcc_cannot_be_the_primary_metric() -> None:
+    with pytest.raises(SchemaError, match="pcc_pooled"):
+        TaskConfig(
+            kind=TaskKind.SUBJECT_FORECAST,
+            target_modality="protein",
+            input_modalities=["rna", "protein"],
+            primary_metric="pcc_pooled",
+        )
+
+
 def test_experiment_rejects_unknown_keys() -> None:
     payload = load_experiment(Path("config/experiment.example.yaml")).model_dump(mode="json")
     payload["secret_override_test"] = True

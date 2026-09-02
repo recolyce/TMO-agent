@@ -12,6 +12,7 @@ from typing import Any
 import pandas as pd
 from pydantic import Field
 
+from omics_agent.errors import SchemaError
 from omics_agent.schemas.dataset import StrictModel
 
 
@@ -57,6 +58,21 @@ class FeatureMap(StrictModel):
             "n_ambiguous": n_ambiguous,
             "n_pairs": sum(len(item.targets) for item in self.mappings),
         }
+
+    def assert_ready_for_training(self) -> None:
+        """Refuse to train while one-to-many IDs are unresolved."""
+
+        n_ambiguous = sum(1 for item in self.mappings if item.is_ambiguous)
+        if n_ambiguous:
+            raise SchemaError(
+                f"Feature map for '{self.modality}' has {n_ambiguous} one-to-many IDs. "
+                "Training on the raw source IDs would silently drop extra targets.",
+                how_to_fix=(
+                    "Resolve each ambiguous source to a single target, or keep the "
+                    "one-to-many table and do not train until a human chooses. "
+                    "The pipeline will not pick the first hit."
+                ),
+            )
 
     def to_frame(self) -> pd.DataFrame:
         """Long form: one row per (source, target) pair; unmapped rows keep NA."""

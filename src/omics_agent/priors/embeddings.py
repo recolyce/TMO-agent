@@ -219,6 +219,18 @@ def extract_unimol_embeddings(
         size=config.unimol_size,
         repr_fn=repr_fn,
     )
+    if repr_fn is None:
+        commit = adapter.source_commit()
+        if commit != UNIMOL_PINNED_COMMIT:
+            raise PriorError(
+                "Uni-Mol checkout is not the pinned commit "
+                f"(HEAD={commit or 'unknown'}, pin={UNIMOL_PINNED_COMMIT}).",
+                how_to_fix=(
+                    f"Check out {UNIMOL_PINNED_COMMIT} in priors.embedding.unimol_root. "
+                    "omics-agent will not run an unpinned external repo (rule 7). "
+                    "CI injects a mock repr_fn and skips this pin check."
+                ),
+            )
     vectors = adapter.get_cls_repr(unique)
     dim = int(vectors.shape[1])
     by_feature = {
