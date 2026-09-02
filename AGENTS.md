@@ -37,6 +37,17 @@ official checksums, retry, rate limits, and dry-run. Paper/HTML text is
 stored as untrusted metadata and is never executed. Uncertain
 sample/time/modality/biospecimen maps stay `needs_review`.
 
+## Milestone 3 scope
+
+Implemented: approved matrices → MuData with raw/normalized/scaled layers.
+Per-assay strategies: bulk RNA counts (CPM+log1p), generic log-expression
+(pass-through), protein intensity (zeros→missing, log2). Zero-fill of
+protein missingness does not exist as an option. Stateless per-sample math
+records `learns_statistics: false`; every fitted transformer records
+`fit_split: train` and full-data fits raise. QC metrics, feature_map with
+explicit one-to-many / unmapped entries, mygene.info adapter behind the
+mockable HttpTransport (CI never hits the network).
+
 Not implemented (must raise, not fake success): LLM agents, SRA/raw FASTQ,
 raw mass-spec, ODE/GRU models, Optuna, IG/ablation, literature, web UI.
 

@@ -14,7 +14,7 @@ from omics_agent import __version__
 from omics_agent.data_sources.ingest import load_ingest_manifest, run_ingest
 from omics_agent.data_sources.synthetic import generate_synthetic_dataset
 from omics_agent.errors import OmicsAgentError
-from omics_agent.pipeline import run_benchmark, write_experiment_yaml
+from omics_agent.pipeline import run_benchmark, run_preprocess, write_experiment_yaml
 from omics_agent.reporting.readiness import write_readiness_report
 from omics_agent.schemas.dataset import load_manifest
 from omics_agent.schemas.enums import FileRole, ReviewStatus, SamplingDesign, SourceType, SplitName
@@ -219,6 +219,35 @@ def generate_synthetic(
         except OmicsAgentError as exc:
             _fail(exc)
         console.print(plan)
+
+
+@app.command("preprocess")
+def preprocess(
+    experiment: Annotated[Path, typer.Option(help="Path to experiment.yaml")],
+    output_dir: Annotated[Path | None, typer.Option(help="Override output directory")] = None,
+    id_map: Annotated[
+        Path | None,
+        typer.Option(
+            help=(
+                "Curated TSV/CSV: modality, source_id, target_id[, target_id_type]. "
+                "One row per pair; one-to-many mappings are explicit rows."
+            )
+        ),
+    ] = None,
+    dry_run: Annotated[bool, typer.Option(help="Validate and print the plan only")] = False,
+) -> None:
+    """Approved matrices → MuData with raw/normalized/scaled layers, QC, feature map.
+
+    The split is locked first; scalers fit on train rows only and record
+    fit_split=train. Missing protein intensities are never filled with 0.
+    Without --id-map, features keep their own IDs (nothing is guessed).
+    """
+
+    try:
+        result = run_preprocess(experiment, output_dir=output_dir, id_map=id_map, dry_run=dry_run)
+    except OmicsAgentError as exc:
+        _fail(exc)
+    console.print(result)
 
 
 @app.command("benchmark")

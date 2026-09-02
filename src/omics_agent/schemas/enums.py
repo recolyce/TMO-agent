@@ -151,6 +151,14 @@ class FileRole(StrEnum):
     OTHER = "other"
 
 
+class AssayStrategy(StrEnum):
+    """Registered per-assay preprocessing strategies (milestone 3)."""
+
+    BULK_RNA_COUNTS = "bulk_rna_counts"
+    LOG_EXPRESSION = "log_expression"
+    PROTEIN_INTENSITY = "protein_intensity"
+
+
 class ChecksumAlg(StrEnum):
     """Algorithms we will *verify* against a publisher-provided digest."""
 

@@ -26,3 +26,20 @@ class TransformerProvenance(StrictModel):
     @staticmethod
     def utc_now() -> datetime:
         return datetime.now(UTC)
+
+
+class StatelessTransformRecord(StrictModel):
+    """Provenance for per-sample math that learns no cross-sample statistics.
+
+    CPM uses only that sample's own library size; log transforms are
+    element-wise. ``learns_statistics`` is literally ``False`` so the audit
+    can distinguish these records from fitted transformers, which must
+    carry ``fit_split='train'``.
+    """
+
+    transformer_name: str
+    kind: Literal["stateless_per_sample"]
+    learns_statistics: Literal[False] = False
+    parameters: dict[str, Any] = {}
+    applied_at: datetime
+    extras: dict[str, Any] = {}

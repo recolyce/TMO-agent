@@ -13,9 +13,12 @@ import numpy as np
 import pandas as pd
 
 from omics_agent.errors import ManifestError, SchemaError
+from omics_agent.preprocessing.qc import per_feature_qc, per_sample_qc
 from omics_agent.preprocessing.scalers import TrainOnlyImputer, TrainOnlyStandardScaler
+from omics_agent.preprocessing.strategies import default_config_for, normalize
 from omics_agent.schemas.dataset import DatasetManifest
 from omics_agent.schemas.enums import PairingLevel, SamplingDesign, SplitName
+from omics_agent.schemas.preprocess import ModalityPreprocessConfig
 
 
 @dataclass
@@ -24,7 +27,10 @@ class MultiOmicsBundle:
 
     ``observations`` has one row per ``observation_id`` (biospecimen/time).
     ``matrices[modality]`` is observations × features, aligned to that table.
-    ``missing[modality]`` is True where the original value was NaN.
+    ``missing[modality]`` is True where the value is missing (original NaN,
+    or a protein zero intensity reclassified as not-quantified).
+    ``layers[modality]`` holds ``raw`` / ``normalized`` / ``scaled`` after
+    :meth:`apply_assay_preprocessing`.
     """
 
     manifest: DatasetManifest
@@ -35,6 +41,7 @@ class MultiOmicsBundle:
     missing: dict[str, np.ndarray]
     sample_sheet: pd.DataFrame
     provenance: list[dict[str, Any]] = field(default_factory=list)
+    layers: dict[str, dict[str, np.ndarray]] = field(default_factory=dict)
 
     @property
     def sampling_design(self) -> SamplingDesign:
@@ -161,6 +168,10 @@ class MultiOmicsBundle:
             missing={k: v.copy() for k, v in self.missing.items()},
             sample_sheet=self.sample_sheet,
             provenance=list(self.provenance),
+            layers={
+                mod: {name: values.copy() for name, values in mod_layers.items()}
+                for mod, mod_layers in self.layers.items()
+            },
         )
         return clone
 
@@ -183,12 +194,28 @@ class MultiOmicsBundle:
             missing={name: matrix[idx] for name, matrix in self.missing.items()},
             sample_sheet=self.sample_sheet,
             provenance=list(self.provenance),
+            layers={
+                mod: {name: values[idx] for name, values in mod_layers.items()}
+                for mod, mod_layers in self.layers.items()
+            },
         )
 
-    def apply_train_only_preprocessing(self) -> MultiOmicsBundle:
-        """Fit scalers/imputers on train rows and transform every split.
+    def apply_assay_preprocessing(
+        self, configs: dict[str, ModalityPreprocessConfig] | None = None
+    ) -> MultiOmicsBundle:
+        """Normalize per assay, then fit the scaler on train rows only.
 
-        Provenance records always contain ``fit_split='train'``.
+        For each modality this produces three layers:
+
+        - ``raw``: the aligned input matrix, untouched.
+        - ``normalized``: stateless per-sample math (CPM/log1p for counts,
+          zeros-to-missing plus log2 for protein intensity, pass-through for
+          log-like values). Learns nothing across samples.
+        - ``scaled``: train-only z-score of ``normalized``. Missing entries
+          stay NaN; protein missingness is never filled with 0.
+
+        The default strategy comes from the manifest ``value_type``;
+        ``configs`` overrides it per modality.
         """
 
         if "split" not in self.observations.columns:
@@ -203,29 +230,52 @@ class MultiOmicsBundle:
                 how_to_fix="Check split fractions and group assignments.",
             )
         train_labels = np.array([SplitName.TRAIN.value] * int(train_mask.sum()))
-        new_matrices = {}
+        new_matrices: dict[str, np.ndarray] = {}
+        new_missing: dict[str, np.ndarray] = {}
+        new_layers: dict[str, dict[str, np.ndarray]] = {}
         records: list[dict[str, Any]] = []
         for modality, matrix in self.matrices.items():
-            # NaN-aware train-only z-score. Missing entries stay NaN so the
-            # evaluator never scores imputed targets as if they were observed.
-            scaler = TrainOnlyStandardScaler(name=f"{modality}_standard_scaler")
-            scaler.fit(matrix[train_mask], train_labels)
-            scaled = scaler.transform(matrix)
-            scaled[self.missing[modality]] = np.nan
+            config = (configs or {}).get(modality) or default_config_for(
+                modality, self.manifest.modalities[modality]
+            )
+            normalized, stateless = normalize(modality, matrix, config)
+            missing = np.isnan(normalized)
+            records.append(stateless.model_dump(mode="json"))
+            if config.scale:
+                # NaN-aware train-only z-score. Missing entries stay NaN so the
+                # evaluator never scores imputed targets as if they were observed.
+                scaler = TrainOnlyStandardScaler(name=f"{modality}_standard_scaler")
+                scaler.fit(normalized[train_mask], train_labels)
+                scaled = scaler.transform(normalized)
+                scaled[missing] = np.nan
+                if scaler.provenance is None:
+                    raise RuntimeError("Preprocessor provenance missing after fit.")
+                records.append(scaler.provenance.model_dump(mode="json"))
+            else:
+                scaled = normalized.copy()
             new_matrices[modality] = scaled
-            if scaler.provenance is None:
-                raise RuntimeError("Preprocessor provenance missing after fit.")
-            records.append(scaler.provenance.model_dump(mode="json"))
+            new_missing[modality] = missing
+            new_layers[modality] = {
+                "raw": matrix.copy(),
+                "normalized": normalized.copy(),
+                "scaled": scaled.copy(),
+            }
         return MultiOmicsBundle(
             manifest=self.manifest,
             manifest_path=self.manifest_path,
             observations=self.observations.copy(),
             matrices=new_matrices,
             feature_names=self.feature_names,
-            missing=self.missing,
+            missing=new_missing,
             sample_sheet=self.sample_sheet,
             provenance=self.provenance + records,
+            layers=new_layers,
         )
+
+    def apply_train_only_preprocessing(self) -> MultiOmicsBundle:
+        """Manifest-default assay preprocessing. Kept for milestone-1 callers."""
+
+        return self.apply_assay_preprocessing(None)
 
     def imputed_matrix(self, modality: str) -> np.ndarray:
         """Train-mean fill of one modality for model features (not for scoring)."""
@@ -237,14 +287,28 @@ class MultiOmicsBundle:
         return imputer.transform(values)
 
     def to_mudata(self) -> md.MuData:
-        """Convert to MuData. Each modality is an AnnData with aligned obs."""
+        """Convert to MuData with raw/normalized/scaled layers and QC columns.
+
+        ``X`` is the scaled matrix used by models. QC metrics live in
+        ``obs`` / ``var`` with a ``qc_`` prefix and describe the raw layer.
+        """
 
         adatas: dict[str, ad.AnnData] = {}
         obs = self.observations.copy().set_index("observation_id")
         for modality, matrix in self.matrices.items():
             var = pd.DataFrame(index=pd.Index(self.feature_names[modality], name="feature_id"))
             adata = ad.AnnData(X=matrix.copy(), obs=obs.copy(), var=var)
-            adata.layers["raw_aligned"] = matrix.copy()
+            mod_layers = self.layers.get(modality) or {"raw": matrix.copy()}
+            for layer_name, values in mod_layers.items():
+                adata.layers[layer_name] = values.copy()
+            raw = mod_layers.get("raw", matrix)
+            missing = self.missing[modality]
+            sample_qc = per_sample_qc(raw, missing)
+            for column in sample_qc.columns:
+                adata.obs[column] = sample_qc[column].to_numpy()
+            feature_qc = per_feature_qc(raw, missing)
+            for column in feature_qc.columns:
+                adata.var[column] = feature_qc[column].to_numpy()
             # Store provenance as JSON text. A list of dicts is not a valid
             # HDF5/AnnData uns payload and would fail on write.
             adata.uns["fit_split_provenance_json"] = json.dumps(self.provenance, default=str)

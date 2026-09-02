@@ -7,6 +7,7 @@ with the independent evaluator.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -14,11 +15,19 @@ import pandas as pd
 import yaml
 
 from omics_agent.data_sources.local import load_local_bundle
+from omics_agent.errors import SchemaError
 from omics_agent.evaluation.evaluator import evaluate_predictions
 from omics_agent.hashing import collect_run_hashes, hash_dataframe
 from omics_agent.models import get_model
 from omics_agent.models.tasks import DataForModel, prepare_split_data
 from omics_agent.preprocessing.bundle import MultiOmicsBundle
+from omics_agent.preprocessing.id_mapping import (
+    IdentityMapper,
+    IdMappingAdapter,
+    StaticTableIdMapper,
+    build_feature_map,
+)
+from omics_agent.preprocessing.qc import write_qc_json
 from omics_agent.reporting.benchmark import write_benchmark_report
 from omics_agent.reporting.tracking import log_benchmark_run
 from omics_agent.schemas.dataset import load_manifest
@@ -96,10 +105,11 @@ def run_benchmark(
     write_splits(splits, split_path)
     split_units = splits[["experimental_unit_id", "split"]].drop_duplicates()
     labeled = bundle.with_split(split_units)
-    processed = labeled.apply_train_only_preprocessing()
+    processed = labeled.apply_assay_preprocessing(experiment.preprocessing.per_modality)
     _assert_fit_split_train(processed)
     mudata_path = dest / "dataset.h5mu"
     processed.write_h5mu(mudata_path)
+    write_qc_json(processed, dest / "qc_metrics.json")
 
     train = processed.subset(SplitName.TRAIN)
     val = processed.subset(SplitName.VAL)
@@ -197,6 +207,147 @@ def run_benchmark(
     }
 
 
+def run_preprocess(
+    experiment_path: Path,
+    *,
+    output_dir: Path | None = None,
+    id_map: Path | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Milestone 3: approved matrices → MuData with layers, QC, feature map.
+
+    Locks the split first so every fitted transformer sees train rows only,
+    then writes ``dataset.h5mu`` (raw/normalized/scaled layers),
+    ``qc_metrics.json``, ``preprocessing_provenance.json``, and
+    ``feature_map.json``.
+
+    Parameters
+    ----------
+    experiment_path:
+        ``experiment.yaml`` (provides the dataset link, split policy, and
+        optional per-modality preprocessing overrides).
+    id_map:
+        Optional curated TSV/CSV with columns ``modality``, ``source_id``,
+        ``target_id`` and optional ``target_id_type``. One row per pair;
+        one-to-many mappings are explicit rows. Without a table, features
+        keep their own IDs (identity map) — nothing is guessed.
+    """
+
+    experiment_path = experiment_path.resolve()
+    experiment = load_experiment(experiment_path)
+    manifest_path = _resolve(experiment_path, experiment.dataset)
+    manifest = load_manifest(manifest_path)
+    manifest.require_approved_for_training()
+    dest = output_dir or experiment.output_dir or Path("outputs") / experiment.experiment_id
+    dest = dest.resolve()
+    plan: dict[str, Any] = {
+        "experiment_id": experiment.experiment_id,
+        "dataset_id": manifest.dataset_id,
+        "output_dir": str(dest),
+        "modalities": list(manifest.modalities),
+        "dry_run": dry_run,
+    }
+    if dry_run:
+        plan["would_write"] = [
+            str(dest / name)
+            for name in (
+                "splits.parquet",
+                "dataset.h5mu",
+                "qc_metrics.json",
+                "preprocessing_provenance.json",
+                "feature_map.json",
+            )
+        ]
+        return plan
+
+    dest.mkdir(parents=True, exist_ok=True)
+    bundle = load_local_bundle(manifest_path)
+    splits = assign_splits(bundle, experiment.split, seed=experiment.seed)
+    split_path = dest / "splits.parquet"
+    write_splits(splits, split_path)
+    labeled = bundle.with_split(splits[["experimental_unit_id", "split"]].drop_duplicates())
+    processed = labeled.apply_assay_preprocessing(experiment.preprocessing.per_modality)
+    _assert_fit_split_train(processed)
+    mudata_path = dest / "dataset.h5mu"
+    processed.write_h5mu(mudata_path)
+    qc = write_qc_json(processed, dest / "qc_metrics.json")
+    provenance_path = dest / "preprocessing_provenance.json"
+    provenance_path.write_text(
+        yaml.safe_dump(processed.provenance, sort_keys=False), encoding="utf-8"
+    )
+
+    id_table = _read_id_map(id_map) if id_map is not None else None
+    feature_maps: dict[str, Any] = {}
+    for modality in processed.matrices:
+        adapter = _adapter_for(modality, manifest.modalities[modality].feature_id_type.value, id_table)
+        feature_map = build_feature_map(
+            modality=modality,
+            source_ids=processed.feature_names[modality],
+            source_id_type=manifest.modalities[modality].feature_id_type.value,
+            adapter=adapter,
+        )
+        feature_maps[modality] = {
+            **feature_map.model_dump(mode="json"),
+            "summary": feature_map.summary(),
+        }
+    feature_map_path = dest / "feature_map.json"
+    feature_map_path.write_text(
+        json.dumps(feature_maps, indent=2, default=str), encoding="utf-8"
+    )
+
+    return {
+        **plan,
+        "split_path": str(split_path),
+        "mudata_path": str(mudata_path),
+        "qc_path": str(dest / "qc_metrics.json"),
+        "provenance_path": str(provenance_path),
+        "feature_map_path": str(feature_map_path),
+        "layers": ["raw", "normalized", "scaled"],
+        "qc_summary": {
+            modality: payload["summary"] for modality, payload in qc["modalities"].items()
+        },
+        "feature_map_summary": {
+            modality: payload["summary"] for modality, payload in feature_maps.items()
+        },
+    }
+
+
+def _read_id_map(path: Path) -> pd.DataFrame:
+    if not path.is_file():
+        raise SchemaError(
+            f"ID-map table not found: {path}",
+            how_to_fix="Pass an existing TSV/CSV with modality, source_id, target_id columns.",
+        )
+    table = pd.read_csv(path, sep="," if path.suffix.lower() == ".csv" else "\t")
+    missing = [col for col in ("modality", "source_id", "target_id") if col not in table.columns]
+    if missing:
+        raise SchemaError(
+            f"ID-map table is missing columns {missing}.",
+            how_to_fix=(
+                "Required columns: modality, source_id, target_id. Optional: target_id_type. "
+                "A source with several targets uses several rows."
+            ),
+        )
+    return table
+
+
+def _adapter_for(
+    modality: str, source_id_type: str, id_table: pd.DataFrame | None
+) -> IdMappingAdapter:
+    if id_table is None:
+        return IdentityMapper(target_id_type=source_id_type)
+    rows = id_table[id_table["modality"].astype(str) == modality]
+    if rows.empty:
+        # Table given but says nothing about this modality: keep identity.
+        return IdentityMapper(target_id_type=source_id_type)
+    target_type = "undeclared"
+    if "target_id_type" in rows.columns:
+        declared = rows["target_id_type"].dropna().astype(str).unique().tolist()
+        if len(declared) == 1:
+            target_type = declared[0]
+    return StaticTableIdMapper(rows, target_id_type=target_type)
+
+
 def write_experiment_yaml(path: Path, config: ExperimentConfig) -> None:
     """Serialize an experiment config for the toy runner."""
 
@@ -210,6 +361,9 @@ def write_experiment_yaml(path: Path, config: ExperimentConfig) -> None:
 
 def _assert_fit_split_train(bundle: MultiOmicsBundle) -> None:
     for record in bundle.provenance:
+        if record.get("learns_statistics") is False:
+            # Stateless per-sample math (CPM, log). Nothing to leak.
+            continue
         if record.get("fit_split") != "train":
             raise RuntimeError(
                 f"Preprocessor {record.get('transformer_name')} has fit_split="

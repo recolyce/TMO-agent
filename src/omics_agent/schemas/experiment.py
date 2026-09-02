@@ -20,6 +20,7 @@ from omics_agent.schemas.enums import (
     SplitName,
     TaskKind,
 )
+from omics_agent.schemas.preprocess import ModalityPreprocessConfig
 
 
 class TaskConfig(StrictModel):
@@ -95,10 +96,15 @@ class ModelParams(StrictModel):
 
 
 class PreprocessingConfig(StrictModel):
-    """Train-only transformers. Fitting on all rows is a hard error."""
+    """Train-only transformers. Fitting on all rows is a hard error.
+
+    ``per_modality`` overrides the strategy chosen from the manifest
+    ``value_type``. There is no zero-fill option for missing protein values.
+    """
 
     scale: bool = True
     impute: bool = True
+    per_modality: dict[str, ModalityPreprocessConfig] = Field(default_factory=dict)
 
 
 class EvaluationConfig(StrictModel):

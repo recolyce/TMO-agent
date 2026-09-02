@@ -6,6 +6,8 @@
 
 里程碑 2：从 GEO / BioStudies / PRIDE / HTTPS / 本地 processed matrix 生成类型化 ingest manifest，下载并校验，写出 data-readiness 报告。**不会猜测** sample/time/配对，也**不会**把论文 HTML 当成指令执行。
 
+里程碑 3：把人工批准后的 processed matrices 转成 MuData（raw / normalized / scaled 三层），按 assay 选择策略（bulk RNA counts → CPM+log1p；log-expression → 原样；protein intensity → 0 视为缺失 + log2），生成 QC 指标、feature_map 和 preprocessing provenance。**蛋白缺失不会被补 0**；所有学习统计量的 transformer 只在 train 上 fit。
+
 ## 你需要什么
 
 - Python 3.11（`uv` 会帮你安装）
@@ -69,6 +71,23 @@ ingest 写出（dry-run 不写盘）：
 
 不确定的 sample / time / modality / biospecimen 一律留在 `unresolved`，不会被猜成训练集。FASTQ、mzML、vendor `.raw` 只标 `rejected_raw`，不下载。zip/tar 不自动解压。
 
+批准后的数据 → MuData（里程碑 3）：
+
+```bash
+uv run omics-agent preprocess --experiment config/experiment.example.yaml --output-dir outputs/prep
+```
+
+写出：
+
+| 路径 | 内容 |
+|---|---|
+| `dataset.h5mu` | 每个模态含 `raw` / `normalized` / `scaled` 三层；`X` 是 scaled |
+| `qc_metrics.json` | per-sample / per-feature 缺失率、信号总量、零方差 feature |
+| `preprocessing_provenance.json` | 无状态 per-sample 步骤标 `learns_statistics: false`；fit 过的 scaler 一律 `fit_split: train` |
+| `feature_map.json` | 一对多映射显式保留；映射不到就记 `unmapped`，不猜 |
+
+策略按 manifest 的 `value_type` 自动选择（`raw_counts` → CPM+log1p；`intensity` → 0 视为缺失 + log2；log 类 → 原样），也可以在 `experiment.yaml` 的 `preprocessing.per_modality` 覆盖。`value_type: undeclared` 会直接报错，不会猜。加 `--id-map map.tsv`（列：`modality  source_id  target_id  [target_id_type]`）用离线表映射 ID；外部 API（mygene.info）adapter 走可注入的 HTTP transport，CI 全部 mock。
+
 只演练、不写文件：
 
 ```bash
@@ -126,6 +145,9 @@ uv run omics-agent benchmark --experiment config/experiment.example.yaml --dry-r
 | `looks like raw sequencing` | 指向了 FASTQ / mzML / vendor .raw | 改用作者提供的 processed matrix |
 | Official checksum mismatch | 下载字节与仓库公布的摘要不一致 | 不要使用该文件；重新下载或核对官方 checksum |
 | 只给了论文 DOI | DOI 不能定位矩阵 | 再提供 GSE/PXD/E-MTAB 或矩阵 URL |
+| `no preprocessing strategy can be chosen` | `value_type: undeclared` | 人工确认矩阵是 counts 还是 intensity 后写进 manifest |
+| `declared raw counts but contains negative values` | 矩阵其实已经 log/中心化 | 把 `value_type` 改成 log 类，用 log_expression 策略 |
+| 蛋白某些值变成了 NaN | 0 强度被视为「未定量」 | 这是有意的；不要求补 0。模型输入需要填充时用 train-mean 且只对输入 |
 
 ## 验证
 
@@ -140,10 +162,9 @@ uv run omics-agent run-toy --output-dir outputs/toy
 
 ## 下一步（还没做，也不会假装做了）
 
-1. 按 assay 的预处理策略（counts / intensity 分策略，train-only fit）  
-2. GRU / latent ODE（纯 PyTorch，不用 Lightning）  
-3. 仅 validation 的 Optuna，以及一次性 unlock-test  
-4. 先验消融与解释性、文献核验  
+1. GRU / latent ODE（纯 PyTorch，不用 Lightning）  
+2. 仅 validation 的 Optuna，以及一次性 unlock-test  
+3. 先验消融与解释性、文献核验  
 
 解释值不是因果。文献以后若检索不到，只能写「在本次检索范围内未找到直接证据」。
 

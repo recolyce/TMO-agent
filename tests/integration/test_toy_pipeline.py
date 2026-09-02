@@ -83,6 +83,72 @@ def test_cli_run_toy(tmp_path: Path) -> None:
     assert (tmp_path / "toy" / "rcs" / "run" / "reports" / "benchmark.md").is_file()
 
 
+def test_cli_preprocess_writes_layers_qc_and_feature_map(
+    longitudinal_dir: Path, tmp_path: Path
+) -> None:
+    import json
+
+    import mudata as md
+
+    exp_path = tmp_path / "experiment.yaml"
+    write_experiment_yaml(
+        exp_path, _longitudinal_experiment(longitudinal_dir / "dataset.yaml", tmp_path / "run")
+    )
+    dest = tmp_path / "prep"
+    result = runner.invoke(
+        app, ["preprocess", "--experiment", str(exp_path), "--output-dir", str(dest)]
+    )
+    assert result.exit_code == 0, result.output
+    for name in (
+        "splits.parquet",
+        "dataset.h5mu",
+        "qc_metrics.json",
+        "preprocessing_provenance.json",
+        "feature_map.json",
+    ):
+        assert (dest / name).is_file(), name
+    mdata = md.read_h5mu(dest / "dataset.h5mu")
+    assert {"raw", "normalized", "scaled"} <= set(mdata["rna"].layers.keys())
+    assert "qc_pct_missing" in mdata["rna"].var.columns
+    feature_map = json.loads((dest / "feature_map.json").read_text(encoding="utf-8"))
+    assert feature_map["rna"]["mapping_source"] == "identity"
+    assert feature_map["rna"]["summary"]["n_unmapped"] == 0
+    provenance = (dest / "preprocessing_provenance.json").read_text(encoding="utf-8")
+    assert "fit_split: train" in provenance
+    assert "fit_split: val" not in provenance
+
+
+def test_preprocess_with_id_map_keeps_one_to_many(longitudinal_dir: Path, tmp_path: Path) -> None:
+    import json
+
+    from omics_agent.pipeline import run_preprocess
+
+    bundle = load_local_bundle(longitudinal_dir / "dataset.yaml")
+    first_gene = bundle.feature_names["rna"][0]
+    id_map = tmp_path / "id_map.tsv"
+    id_map.write_text(
+        "modality\tsource_id\ttarget_id\ttarget_id_type\n"
+        f"rna\t{first_gene}\tENSG0001\tensembl_gene_id\n"
+        f"rna\t{first_gene}\tENSG0002\tensembl_gene_id\n",
+        encoding="utf-8",
+    )
+    exp_path = tmp_path / "experiment.yaml"
+    write_experiment_yaml(
+        exp_path, _longitudinal_experiment(longitudinal_dir / "dataset.yaml", tmp_path / "run")
+    )
+    result = run_preprocess(exp_path, output_dir=tmp_path / "prep2", id_map=id_map)
+    feature_map = json.loads(
+        (tmp_path / "prep2" / "feature_map.json").read_text(encoding="utf-8")
+    )
+    rna = feature_map["rna"]
+    assert rna["mapping_source"] == "static_table"
+    assert rna["summary"]["n_ambiguous"] == 1
+    assert rna["summary"]["n_unmapped"] == len(bundle.feature_names["rna"]) - 1
+    # A table that says nothing about protein leaves protein IDs as-is.
+    assert feature_map["protein"]["mapping_source"] == "identity"
+    assert result["feature_map_summary"]["rna"]["n_pairs"] >= 2
+
+
 def test_rcs_assignment_uses_group_time_forecast(rcs_dir: Path, tmp_path: Path) -> None:
     exp = ExperimentConfig(
         schema_version="1.0",
