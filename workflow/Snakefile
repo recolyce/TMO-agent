@@ -1,0 +1,18 @@
+# Milestone 1 toy pipeline. Each rule has explicit inputs and outputs.
+# This Snakefile shells out to the CLI; it does not download data or call an LLM.
+
+from pathlib import Path
+
+OUTPUT = Path("outputs/toy")
+
+rule all:
+    input:
+        OUTPUT / "longitudinal" / "run" / "reports" / "benchmark.md",
+        OUTPUT / "rcs" / "run" / "reports" / "benchmark.md",
+
+rule run_toy:
+    output:
+        OUTPUT / "longitudinal" / "run" / "reports" / "benchmark.md",
+        OUTPUT / "rcs" / "run" / "reports" / "benchmark.md",
+    shell:
+        "omics-agent run-toy --output-dir {OUTPUT}"

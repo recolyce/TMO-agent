@@ -1,0 +1,49 @@
+schema_version: "1.0"
+dataset_id: "synthetic_rcs_rna_protein"
+title: "Synthetic repeated cross-sectional bulk RNA+protein (known lagged edges)"
+source:
+  type: "synthetic"
+  generator: "synthetic_linear_delay_v1"
+  local_dir: "."
+license:
+  name: "CC0-1.0"
+  redistributable: true
+  notes: "Synthetic fixture; not biological data."
+organism:
+  taxon_id: 9606
+  name: "Homo sapiens"
+design:
+  unit_of_independence: "experiment_batch"
+  sampling_design: "repeated_cross_sectional"
+  longitudinal: false
+  pairing_level: "same_biospecimen"
+  paired_modalities: true
+  time_unit: "hour"
+modalities:
+  rna:
+    assay: "synthetic"
+    value_type: "synthetic_abundance"
+    feature_id_type: "synthetic_gene"
+    n_features: 12
+  protein:
+    assay: "synthetic"
+    value_type: "synthetic_abundance"
+    feature_id_type: "synthetic_protein"
+    n_features: 8
+files:
+  - path: "rna.parquet"
+    sha256: null
+    modality: "rna"
+    role: "matrix"
+  - path: "protein.parquet"
+    sha256: null
+    modality: "protein"
+    role: "matrix"
+sample_sheet: "samples.tsv"
+human_review:
+  status: "approved"
+  unresolved: []
+  reviewer: "synthetic-generator"
+notes: >
+  Each animal has one time point. Do not concatenate animals into a subject
+  trajectory. Split by experiment batch (expA/expB/expC).

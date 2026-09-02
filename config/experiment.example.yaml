@@ -1,0 +1,35 @@
+schema_version: "1.0"
+experiment_id: "toy_longitudinal_protein_forecast"
+dataset: "dataset.example.yaml"
+seed: 20260901
+task:
+  kind: "subject_forecast"
+  target_modality: "protein"
+  input_modalities: ["rna", "protein"]
+  history: "last_observation"
+  horizon_steps: 1
+  primary_metric: "protein_macro_pcc"
+split:
+  group_columns: ["experimental_unit_id", "subject_id"]
+  fractions:
+    train: 0.6
+    val: 0.2
+    test: 0.2
+  block_experiment_batch: false
+  also_block: ["biospecimen_id"]
+models:
+  - name: "last_value"
+    params: {}
+  - name: "ridge"
+    params:
+      alpha: 1.0
+  - name: "time_spline"
+    params:
+      spline_df: 3
+      alpha: 1.0
+preprocessing:
+  scale: true
+  impute: true
+evaluation:
+  bootstrap_replicates: 50
+  unlock_test: false

@@ -1,0 +1,98 @@
+[project]
+name = "omics-agent"
+version = "0.1.0"
+description = "Deterministic bulk temporal multi-omics prediction pipeline with a constrained orchestration layer."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "TMO-agent contributors" }]
+dependencies = [
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "typer>=0.15,<0.20",
+    "rich>=13.9,<15",
+    "pyyaml>=6.0,<7",
+    "pandas>=2.2,<3",
+    "numpy>=1.26,<3",
+    "scipy>=1.13,<2",
+    "scikit-learn>=1.5,<2",
+    "anndata>=0.11,<0.12",
+    "mudata>=0.3.1,<0.4",
+    "mlflow>=2.18,<3",
+    "statsmodels>=0.14.4,<0.15",
+    "patsy>=0.5.6,<1",
+    "fastparquet>=2024.5.0,<2026",
+    "joblib>=1.4,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-cov>=5,<7",
+    "ruff>=0.9,<0.14",
+    "mypy>=1.13,<2",
+    "pandas-stubs>=2.2,<3",
+    "types-pyyaml>=6.0,<7",
+]
+# Pure PyTorch is the chosen deep-learning stack (not Lightning).
+# Milestone 1 baselines do not import torch; install this extra from milestone 4.
+torch = ["torch>=2.4,<3"]
+workflow = ["snakemake>=8.20,<10"]
+
+[project.scripts]
+omics-agent = "omics_agent.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/omics_agent"]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "integration: slower end-to-end checks on synthetic data",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["omics_agent"]
+mypy_path = "src"
+strict = false
+disallow_untyped_defs = true
+warn_unused_ignores = true
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = [
+    "anndata",
+    "anndata.*",
+    "mudata",
+    "mudata.*",
+    "mlflow",
+    "mlflow.*",
+    "patsy",
+    "patsy.*",
+    "statsmodels",
+    "statsmodels.*",
+    "sklearn",
+    "sklearn.*",
+    "scipy",
+    "scipy.*",
+    "joblib",
+]
+ignore_missing_imports = true

@@ -1,0 +1,4 @@
+name: ridge
+params:
+  alpha: 1.0
+  fit_intercept: true

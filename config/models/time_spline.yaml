@@ -1,0 +1,5 @@
+name: time_spline
+params:
+  spline_df: 3
+  alpha: 1.0
+  include_condition: true
