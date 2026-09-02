@@ -8,10 +8,12 @@
 
 里程碑 3：把人工批准后的 processed matrices 转成 MuData（raw / normalized / scaled 三层），按 assay 选择策略（bulk RNA counts → CPM+log1p；log-expression → 原样；protein intensity → 0 视为缺失 + log2），生成 QC 指标、feature_map 和 preprocessing provenance。**蛋白缺失不会被补 0**；所有学习统计量的 transformer 只在 train 上 fit。
 
+里程碑 4：纯 PyTorch 的时序动力学模型 `gru` / `ode_rnn` / `latent_ode`（modality encoders → gated fusion → latent dynamics → modality decoders），支持真实 delta_t、缺失掩码和 condition 协变量，外加一个 sklearn `mlp` 基线。**只对纵向 subject_forecast 合法**——重复横断面会直接报错，不会把不同动物拼成轨迹。ODE 用自带的固定步长 RK4；solver 出现 NaN/inf、训练 loss 发散都会抛出类型化错误而不是继续汇报垃圾结果。
+
 ## 你需要什么
 
 - Python 3.11（`uv` 会帮你安装）
-- CPU 即可，不需要 GPU
+- CPU 即可；`gru`/`ode_rnn`/`latent_ode` 需要 `uv sync --extra dev --extra torch`，`device: auto` 有 CUDA 时自动用 GPU、没有就退回 CPU（测试全部在 CPU 上可跑）
 - 合成 toy / 测试不需要网络；真实 GEO / BioStudies / PRIDE ingest 才访问仓库 API
 - 本仓库（已包含 `docs/自动化时序多组学科研Agent搭建指南.md`）
 
@@ -88,6 +90,18 @@ uv run omics-agent preprocess --experiment config/experiment.example.yaml --outp
 
 策略按 manifest 的 `value_type` 自动选择（`raw_counts` → CPM+log1p；`intensity` → 0 视为缺失 + log2；log 类 → 原样），也可以在 `experiment.yaml` 的 `preprocessing.per_modality` 覆盖。`value_type: undeclared` 会直接报错，不会猜。加 `--id-map map.tsv`（列：`modality  source_id  target_id  [target_id_type]`）用离线表映射 ID；外部 API（mygene.info）adapter 走可注入的 HTTP transport，CI 全部 mock。
 
+动力学模型对比基线（里程碑 4，同一 split 上 6 个模型）：
+
+```bash
+uv sync --extra dev --extra torch
+uv run omics-agent generate-synthetic --output-dir outputs/m4/data --design longitudinal
+uv run omics-agent benchmark --experiment config/experiment.dynamics.example.yaml --unlock-test
+```
+
+在合成 ODE 数据上（V100，300 epochs，val 早停），test split 的结果示例：
+`last_value` MSE 0.689 → `ridge` 0.304 → `mlp` 0.230 → `gru` 0.211 → `ode_rnn` 0.197 → `latent_ode` 0.178。
+三个动力学模型的超参在 `params` 里（`epochs`、`hidden_dim`、`recon_weight`、`rk4_substeps`、`device` 等）；`latent_ode` 是确定性的 encoder-ODE-decoder（无 VAE 采样），由 seed 完全复现。
+
 只演练、不写文件：
 
 ```bash
@@ -123,7 +137,7 @@ uv run omics-agent benchmark --experiment config/experiment.example.yaml --dry-r
 | `splits.parquet` | 锁定的 train/val/test，按实验单位（RCS 再按 experiment batch） |
 | `dataset.h5mu` | 预处理后的 MuData；scaler 只在 train 上 fit |
 | `preprocessing_provenance.json` | 每条记录都有 `fit_split: train` |
-| `models/<name>/` | LastValue / Ridge / time_spline |
+| `models/<name>/` | LastValue / Ridge / time_spline / MLP / GRU / ODE-RNN / latent ODE |
 | `reports/benchmark.md` | MSE / MAE / RMSE / PCC / Spearman / R2，含 per-sample、per-feature、macro、coverage、bootstrap CI |
 | `mlruns/` | 本地 MLflow |
 
@@ -148,6 +162,10 @@ uv run omics-agent benchmark --experiment config/experiment.example.yaml --dry-r
 | `no preprocessing strategy can be chosen` | `value_type: undeclared` | 人工确认矩阵是 counts 还是 intensity 后写进 manifest |
 | `declared raw counts but contains negative values` | 矩阵其实已经 log/中心化 | 把 `value_type` 改成 log 类，用 log_expression 策略 |
 | 蛋白某些值变成了 NaN | 0 强度被视为「未定量」 | 这是有意的；不要求补 0。模型输入需要填充时用 train-mean 且只对输入 |
+| `needs PyTorch, which is not installed` | 没装 torch extra 就点了 `gru`/`ode_rnn`/`latent_ode` | `uv sync --extra dev --extra torch` |
+| `needs longitudinal subject histories` | 对重复横断面数据用动力学模型 | 这类数据只能用 `last_value`/`ridge`/`mlp` + `group_time_forecast` |
+| `ODE integration produced NaN/inf` / `loss became non-finite` | solver 或训练发散 | 调低 `lr`、增大 `rk4_substeps` 或减小 `hidden_dim`；发散的 run 不会出报告 |
+| 条件在 val/test 出现但 train 没见过 | condition one-hot 编码未定义 | 检查 split：每个 condition 必须在 train 中出现 |
 
 ## 验证
 
@@ -162,14 +180,14 @@ uv run omics-agent run-toy --output-dir outputs/toy
 
 ## 下一步（还没做，也不会假装做了）
 
-1. GRU / latent ODE（纯 PyTorch，不用 Lightning）  
-2. 仅 validation 的 Optuna，以及一次性 unlock-test  
-3. 先验消融与解释性、文献核验  
+1. 仅 validation 的 Optuna，以及一次性 unlock-test  
+2. 先验消融与解释性（integrated gradients）、文献核验  
+3. 生物先验图（里程碑 4 有意不加）  
 
 解释值不是因果。文献以后若检索不到，只能写「在本次检索范围内未找到直接证据」。
 
 ## 设计选择
 
-- 深度学习框架：**纯 PyTorch**（里程碑 4 才引入；里程碑 1 基线用 sklearn / patsy）
+- 深度学习框架：**纯 PyTorch**（不用 Lightning；ODE 求解用自带 RK4，不引入 torchdiffeq）；基线用 sklearn / patsy
 - 配置全部 YAML，业务对象全部 Pydantic
 - `data/raw/` 只读；结果只写到 `outputs/`

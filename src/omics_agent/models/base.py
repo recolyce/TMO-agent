@@ -50,14 +50,22 @@ def register_model(cls: type[ModelPlugin]) -> type[ModelPlugin]:
     return cls
 
 
+_TORCH_MODEL_NAMES = {"gru", "ode_rnn", "latent_ode"}
+
+
 def get_model(name: str) -> ModelPlugin:
     """Instantiate a registered model. Unknown names fail with a fix hint."""
 
     if name not in _REGISTRY:
+        if name in _TORCH_MODEL_NAMES:
+            raise SchemaError(
+                f"Model '{name}' needs PyTorch, which is not installed.",
+                how_to_fix="Run: uv sync --extra dev --extra torch",
+            )
         known = ", ".join(sorted(_REGISTRY)) or "(none loaded)"
         raise SchemaError(
             f"Unknown model '{name}'.",
-            how_to_fix=f"Registered milestone-1 models: {known}. GRU/latent ODE arrive in a later milestone.",
+            how_to_fix=f"Registered models: {known}.",
         )
     return _REGISTRY[name]()
 

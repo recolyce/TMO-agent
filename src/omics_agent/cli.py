@@ -91,7 +91,19 @@ def doctor() -> None:
         except Exception as exc:  # noqa: BLE001
             all_ok = False
             table.add_row(name, "fail", str(exc))
-    table.add_row("torch", "optional", "not required for milestone 1 baselines")
+    try:
+        import torch
+
+        cuda = f"cuda={torch.cuda.is_available()}"
+        table.add_row(
+            "torch", "ok", f"{torch.__version__} ({cuda}); enables gru/ode_rnn/latent_ode"
+        )
+    except ImportError:
+        table.add_row(
+            "torch",
+            "optional",
+            "not installed; gru/ode_rnn/latent_ode need: uv sync --extra dev --extra torch",
+        )
     console.print(table)
     if not all_ok:
         console.print(

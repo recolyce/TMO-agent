@@ -65,3 +65,11 @@ class ChecksumMismatchError(OmicsAgentError):
 
 class UnsupportedRawDataError(OmicsAgentError):
     """FASTQ / raw mass-spec is outside milestone 2."""
+
+
+class OdeSolverError(OmicsAgentError):
+    """ODE integration produced non-finite latent states."""
+
+
+class TrainingDivergedError(OmicsAgentError):
+    """A training loss became NaN/inf. The run must stop, not report garbage."""

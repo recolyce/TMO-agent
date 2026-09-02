@@ -48,7 +48,22 @@ records `learns_statistics: false`; every fitted transformer records
 explicit one-to-many / unmapped entries, mygene.info adapter behind the
 mockable HttpTransport (CI never hits the network).
 
-Not implemented (must raise, not fake success): LLM agents, SRA/raw FASTQ,
-raw mass-spec, ODE/GRU models, Optuna, IG/ablation, literature, web UI.
+## Milestone 4 scope
 
-Deep-learning stack choice: **pure PyTorch** (not Lightning), starting milestone 4.
+Implemented (pure PyTorch, no Lightning, no torchdiffeq — in-house fixed-step
+RK4 with hard NaN/inf detection): `gru`, `ode_rnn`, and `latent_ode`
+ModelPlugins sharing one architecture: modality encoders → gated fusion →
+latent dynamics → modality decoders. Sequences carry actual delta_t, missing
+masks, and condition one-hots; LayerNorm only, so batch_size=1 works. The
+latent ODE is a deterministic encoder-ODE-decoder (no VAE sampling).
+`device: auto` uses CUDA when present. Early stopping monitors val masked
+MSE; test labels are never read by fit. A diverged solver or NaN loss raises
+`OdeSolverError` / `TrainingDivergedError` — never a silent garbage report.
+Dynamics models are legal only for longitudinal subject_forecast; repeated
+cross-sectional data raises TaskDesignError (rule 4). Also added a sklearn
+`mlp` baseline on the same tabular design matrix as ridge. torch stays an
+optional extra; without it those plugins are unregistered and get_model
+explains the install. No biological priors yet (deliberate).
+
+Not implemented (must raise, not fake success): LLM agents, SRA/raw FASTQ,
+raw mass-spec, Optuna, IG/ablation, literature, web UI, biological priors.

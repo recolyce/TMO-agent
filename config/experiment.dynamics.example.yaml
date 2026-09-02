@@ -1,0 +1,57 @@
+# Milestone-4 example: dynamics models vs LastValue / Ridge / MLP on one split.
+#
+# Prerequisites:
+#   uv sync --extra dev --extra torch
+#   uv run omics-agent generate-synthetic --output-dir outputs/m4/data --design longitudinal
+# Then (paths are resolved relative to this file — use absolute paths or copy
+# this file next to your outputs):
+#   uv run omics-agent benchmark --experiment config/experiment.dynamics.example.yaml --unlock-test
+#
+# gru / ode_rnn / latent_ode are only legal for longitudinal subject_forecast.
+# On repeated cross-sectional data they raise instead of stitching different
+# animals into a fake trajectory.
+schema_version: "1.0"
+experiment_id: m4_dynamics_vs_baselines
+dataset: ../outputs/m4/data/dataset.yaml
+seed: 20260901
+task:
+  kind: subject_forecast
+  target_modality: protein
+  input_modalities: [rna, protein]
+  history: last_observation
+  horizon_steps: 1
+  primary_metric: protein_macro_pcc
+split:
+  group_columns: [experimental_unit_id, subject_id]
+  fractions: {train: 0.6, val: 0.2, test: 0.2}
+  block_experiment_batch: false
+models:
+  - name: last_value
+  - name: ridge
+    params: {alpha: 1.0}
+  - name: mlp
+    params: {hidden_layer_sizes: [64, 64], max_iter: 2000, seed: 20260901}
+  # device: auto picks CUDA when available, else CPU. Early stopping uses the
+  # val split (pred-only masked MSE); test labels are never touched by fit.
+  - name: gru
+    params: &dyn
+      epochs: 300
+      batch_size: 64
+      hidden_dim: 48
+      emb_dim: 32
+      lr: 0.003
+      recon_weight: 0.3
+      rk4_substeps: 2
+      patience: 20
+      val_every: 5
+      device: auto
+      seed: 20260901
+  - name: ode_rnn
+    params: *dyn
+  - name: latent_ode
+    params: *dyn
+evaluation:
+  bootstrap_replicates: 200
+  unlock_test: true
+# Resolved against the current working directory (run from the repo root).
+output_dir: outputs/m4/run
