@@ -83,5 +83,27 @@ the lock BEFORE scoring (fail-closed), and a consumed lock blocks both
 re-testing and further tuning (`TestLockError`). All plugins gained
 `load()` so the final test runs the frozen checkpoint, not a refit.
 
+## Milestone 6 scope
+
+Implemented: versioned `PriorBundle` (hash, version, license, taxon) with
+three independently ablatable priors — Reactome pathway activity features,
+a graph Laplacian that keeps edge type / evidence / score / source version,
+and a frozen embedding projection+gate (`h = gate·learned + (1-gate)·proj(e)`).
+STRING functional associations cannot be labelled `physical_ppi` or
+`gene_regulation` and `is_causal` is literally `False`. Five arms share one
+locked split, one evaluator, and one HPO budget: `no_prior`, `graph_only`,
+`embedding_only`, `combined` (all three priors), `random_graph`
+(degree-matched configuration-model negative control). The comparison table
+reports multi-seed 95% CI, ΔMSE/ΔPCC vs no-prior, trainable parameter
+count, and wall time. If graph_only ≈ random_graph the report forbids a
+biological-gain claim. `ablate-priors` is validation-only (subset spy
+tested). Graph/pathway tables are still the synthetic fixture. Frozen
+embeddings are a registered candidate list: preferred implemented model
+is Uni-Mol (`cls_repr`, local checkout, MIT, injectable mock so CI never
+downloads weights or runs setup.py). Uni-Mol requires an explicit
+feature→SMILES TSV; gene/protein IDs are never guessed as structures.
+`synthetic_pathway_onehot` remains the CI fixture. `esm` is registered
+and raises until a sequence adapter exists.
+
 Not implemented (must raise, not fake success): LLM agents, SRA/raw FASTQ,
-raw mass-spec, IG/ablation, literature, web UI, biological priors.
+raw mass-spec, IG/ablation, literature, web UI, live prior-database ingest.

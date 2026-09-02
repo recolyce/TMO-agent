@@ -22,6 +22,7 @@ import torch
 from torch import Tensor, nn
 
 from omics_agent.models.dynamics.odeint import odeint_rk4
+from omics_agent.models.dynamics.prior_modules import FeaturePriorModule, laplacian_penalty
 
 _MODES = ("gru", "ode_rnn", "latent_ode")
 
@@ -100,6 +101,13 @@ class TemporalCore(nn.Module):
         hidden_dim: int,
         mode: str,
         rk4_substeps: int,
+        pathway_dims: dict[str, int] | None = None,
+        pathway_memberships: dict[str, Tensor] | None = None,
+        use_feature_prior: bool = False,
+        use_embedding_gate: bool = False,
+        prior_proj_dim: int = 16,
+        frozen_embeddings: dict[str, Tensor] | None = None,
+        laplacian_weights: Tensor | None = None,
     ) -> None:
         super().__init__()
         if mode not in _MODES:
@@ -107,10 +115,32 @@ class TemporalCore(nn.Module):
         self.mode = mode
         self.modalities = list(feature_dims)
         self.rk4_substeps = rk4_substeps
+        self.pathway_dims = dict(pathway_dims or {})
         self.encoders = nn.ModuleDict(
             {name: ModalityEncoder(dim, emb_dim) for name, dim in feature_dims.items()}
         )
-        self.fusion = GatedFusion(len(feature_dims), emb_dim, cond_dim)
+        self.pathway_encoders = nn.ModuleDict(
+            {name: ModalityEncoder(dim, emb_dim) for name, dim in self.pathway_dims.items()}
+        )
+        n_streams = len(feature_dims) + len(self.pathway_dims)
+        self.fusion = GatedFusion(n_streams, emb_dim, cond_dim)
+        if pathway_memberships:
+            for name, matrix in pathway_memberships.items():
+                self.register_buffer(f"path_mem_{name}", matrix)
+        self.feature_prior = (
+            FeaturePriorModule(
+                feature_dims,
+                proj_dim=prior_proj_dim,
+                use_embedding=use_embedding_gate,
+                frozen=frozen_embeddings,
+            )
+            if use_feature_prior
+            else None
+        )
+        if laplacian_weights is not None:
+            self.register_buffer("laplacian_w", laplacian_weights)
+        else:
+            self.laplacian_w = None
         self.cell = nn.GRUCell(emb_dim + 1, hidden_dim)
         self.field = OdeField(hidden_dim)
         self.z0_net = (
@@ -136,7 +166,17 @@ class TemporalCore(nn.Module):
     ) -> Tensor:
         """Encode + fuse every time step at once → [B, T, emb]."""
 
-        embeddings = [self.encoders[name](values[name], masks[name]) for name in self.modalities]
+        scales = self.feature_prior.scales() if self.feature_prior is not None else None
+        embeddings = []
+        for name in self.modalities:
+            vals = values[name]
+            if scales is not None:
+                vals = vals * scales[name].to(device=vals.device, dtype=vals.dtype).view(1, 1, -1)
+            embeddings.append(self.encoders[name](vals, masks[name]))
+        if self.pathway_dims:
+            for name in self.pathway_dims:
+                activity, activity_mask = self._pathway_activity(name, values[name], masks[name])
+                embeddings.append(self.pathway_encoders[name](activity, activity_mask))
         n_steps = embeddings[0].shape[1]
         cond_steps = condition.unsqueeze(1).expand(-1, n_steps, -1)
         joint = torch.cat([*embeddings, cond_steps], dim=-1)
@@ -206,3 +246,23 @@ class TemporalCore(nn.Module):
         head_in = torch.cat([final, target_dt.unsqueeze(-1), condition], dim=-1)
         prediction = self.target_head(head_in)
         return prediction, reconstructions
+
+    def _pathway_activity(
+        self, modality: str, values: Tensor, mask: Tensor
+    ) -> tuple[Tensor, Tensor]:
+        membership = getattr(self, f"path_mem_{modality}")
+        filled = values * mask
+        weighted = torch.einsum("btf,pf->btp", filled, membership)
+        support = torch.einsum("btf,pf->btp", mask, membership)
+        activity = weighted / support.clamp(min=1e-6)
+        activity_mask = (support > 0).to(dtype=values.dtype)
+        return activity, activity_mask
+
+    def prior_loss(self) -> Tensor:
+        """Graph Laplacian on gated feature states. Zero when the graph is off."""
+
+        if self.feature_prior is None or self.laplacian_w is None:
+            device = next(self.parameters()).device
+            return torch.zeros((), device=device)
+        states = self.feature_prior.stacked_states()
+        return laplacian_penalty(states, self.laplacian_w)

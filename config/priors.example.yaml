@@ -1,0 +1,22 @@
+# Versioned PriorBundle (synthetic fixture). STRING edges are
+# functional_association — not physical PPI, not causal.
+# Generate one aligned to the toy panel with:
+#   python -c "from omics_agent.priors import write_synthetic_prior_bundle; from pathlib import Path; write_synthetic_prior_bundle(Path('config/priors.example.yaml'))"
+schema_version: "1.0"
+bundle_id: synthetic_dual_omics
+bundle_version: synthetic_priors_v1
+species_taxon_id: 9606
+created_at: "2026-09-01T00:00:00+00:00"
+license: "CC0-1.0 (synthetic fixture)"
+notes:
+  - Synthetic fixture for prior ablations. Not a Reactome or STRING extract.
+  - STRING-style edges are functional_association with evidence/score/version.
+  - Frozen embeddings are a traceable pathway one-hot mix, not ESM/Geneformer.
+features:
+  rna: [G01, G02, G03, G04, G05, G06, G07, G08, G09, G10, G11, G12]
+  protein: [P01, P02, P03, P04, P05, P06, P07, P08]
+edges: []
+pathways: []
+embeddings: {}
+# This file is a stub. `omics-agent ablate-priors` writes a full bundle next
+# to the run when priors.bundle is omitted.

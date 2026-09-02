@@ -28,6 +28,11 @@ def test_example_experiment_is_valid() -> None:
     assert cfg.task.kind is TaskKind.SUBJECT_FORECAST
 
 
+def test_example_priors_experiment_uses_fixture_embeddings() -> None:
+    cfg = load_experiment(Path("config/experiment.priors.example.yaml"))
+    assert cfg.priors.embedding.name.value == "synthetic_pathway_onehot"
+
+
 def test_manifest_rejects_missing_time_unit() -> None:
     payload = load_manifest(Path("config/dataset.example.yaml")).model_dump(mode="json")
     payload["design"].pop("time_unit")

@@ -1,0 +1,52 @@
+# Milestone-6 prior ablation. Same evaluator, same split, same HPO budget.
+#
+#   uv sync --extra dev --extra torch
+#   uv run omics-agent generate-synthetic --output-dir outputs/m6/data --design longitudinal
+#   uv run omics-agent ablate-priors --experiment config/experiment.priors.example.yaml --model gru --n-trials 0
+#
+# Arms: no_prior, graph_only, embedding_only, combined, random_graph.
+# Combined = Reactome pathway features + graph Laplacian + frozen embedding gate.
+# STRING-style edges stay functional_association (not physical, not causal).
+# Preferred embedding model is Uni-Mol (needs a feature→SMILES TSV). This
+# synthetic RNA/protein panel has no structures, so the fixture is used.
+schema_version: "1.0"
+experiment_id: m6_prior_ablation
+dataset: ../outputs/m6/data/dataset.yaml
+seed: 20260901
+task:
+  kind: subject_forecast
+  target_modality: protein
+  input_modalities: [rna, protein]
+  primary_metric: protein_macro_pcc
+split:
+  group_columns: [experimental_unit_id, subject_id]
+  fractions: {train: 0.6, val: 0.2, test: 0.2}
+  block_experiment_batch: false
+models:
+  - name: gru
+    params:
+      epochs: 80
+      batch_size: 64
+      hidden_dim: 32
+      emb_dim: 24
+      lr: 0.003
+      device: auto
+      seed: 20260901
+optimization:
+  n_trials: 1
+evaluation:
+  bootstrap_replicates: 50
+  unlock_test: false
+priors:
+  seeds: [20260901, 20260902, 20260903]
+  share_hpo: true
+  graph_weight: 0.1
+  embedding_proj_dim: 16
+  embedding:
+    # unimol is preferred when a SMILES map exists (see config/feature_smiles.example.tsv).
+    name: synthetic_pathway_onehot
+    unimol_root: /root/workspace/Uni-Mol
+    unimol_variant: unimolv1
+    extraction_layer: cls_repr
+  configs: [no_prior, graph_only, embedding_only, combined, random_graph]
+output_dir: outputs/m6/run

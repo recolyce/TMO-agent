@@ -171,3 +171,31 @@ class HistoryPolicy(StrEnum):
 
     PREVIOUS_ALL = "previous_all"
     LAST_OBSERVATION = "last_observation"
+
+
+class EdgeType(StrEnum):
+    """Prior edge vocabulary. STRING functional links are not physical PPI."""
+
+    GENE_REGULATION = "gene_regulation"
+    PHYSICAL_PPI = "physical_ppi"
+    FUNCTIONAL_ASSOCIATION = "functional_association"
+    PATHWAY_COMEMBERSHIP = "pathway_comembership"
+    GENE_PROTEIN_CODING = "gene_protein_coding"
+
+
+class PriorAblation(StrEnum):
+    """Mandatory prior-ablation arms (rule 9)."""
+
+    NO_PRIOR = "no_prior"
+    GRAPH_ONLY = "graph_only"
+    EMBEDDING_ONLY = "embedding_only"
+    COMBINED = "combined"
+    RANDOM_GRAPH = "random_graph"
+
+
+class EmbeddingModelName(StrEnum):
+    """Frozen embedding extractors. Uni-Mol is the preferred implemented model."""
+
+    UNIMOL = "unimol"
+    SYNTHETIC_PATHWAY_ONEHOT = "synthetic_pathway_onehot"
+    ESM = "esm"

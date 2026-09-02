@@ -12,6 +12,8 @@
 
 里程碑 5：Optuna **仅 validation** 调参——固定预算、固定 sampler seed、固定 study name、median pruner，全程 MLflow tracking，产出结构化 `OptimizationDecision`。**optimizer 的目标函数拿不到 test 行**（有运行时防护 + 回归测试证明）。调参结束自动冻结 best config / checkpoint / 全套 hash；只有显式 `unlock-test --confirm` 能跑**一次** final test（评分前先烧掉锁，fail-closed）；之后同一 `experiment_id` 的调参和再测一律拒绝。任何对 split / checkpoint / 冻结 config / decision / evaluator 代码的修改都会被 hash 校验拒绝。
 
+里程碑 6：版本化 `PriorBundle`（hash + version + 许可 + 物种）和三种可消融先验——Reactome pathway activity、带 edge type / evidence / score 的 graph Laplacian、冻结 embedding 的 projection/gate。**STRING functional association 不能标成 physical PPI 或因果**。五种配置（no-prior / graph-only / embedding-only / combined / degree-matched random-graph）共用同一 evaluator、同一锁定 split、同一 HPO budget；对照表给出效果差（相对 no-prior 的 ΔMSE / ΔPCC）、参数量、运行时间和多 seed 95% CI。真实图与随机图没有稳定差异时，报告明确写不能声称生物学增益。冻结 embedding 的首选模型是 **Uni-Mol**（本地 `/root/workspace/Uni-Mol`，MIT，只吃显式 SMILES 对照表，CI 用 mock、不跑 setup.py / 不下载权重）；合成 RNA/蛋白面板没有结构时用 `synthetic_pathway_onehot` fixture，**不会**把基因/蛋白 ID 当成 SMILES。
+
 ## 你需要什么
 
 - Python 3.11（`uv` 会帮你安装）
@@ -119,6 +121,15 @@ uv run omics-agent unlock-test --experiment outputs/m4/experiment.yaml --model g
 
 写出 `reports/optimization_decision_<model>.json`（预算、seed、pruner、逐 trial 记录、best params、`objective_split: val`、`test_labels_visible: false`）、`frozen/<model>/`（checkpoint + frozen_experiment.yaml + freeze_manifest.json）和 `test_lock.json`。`optimization:` 块可在 experiment.yaml 里调 `n_trials` / `objective_metric`（mse|mae）/ pruner 参数；搜索空间是代码不是配置，optimizer 改不了 split、evaluator 和 primary metric。
 
+五种先验消融（里程碑 6，同一 split / evaluator / HPO budget）：
+
+```bash
+uv run omics-agent generate-synthetic --output-dir outputs/m6/data --design longitudinal
+uv run omics-agent ablate-priors --experiment config/experiment.priors.example.yaml --model gru --n-trials 0
+```
+
+写出 `reports/prior_ablation.md`（ΔMSE / ΔPCC vs no-prior、参数量、秒数、多种子 CI）和 `priors/bundle.yaml`（版本化 PriorBundle）。`combined` 同时打开通路特征、Laplacian 和冻结 embedding gate；`random_graph` 是度匹配负对照。STRING 边的 `edge_type` 只能是 `functional_association`。换 Uni-Mol 表示时加上 `--smiles-map config/feature_smiles.example.tsv --embedding-model unimol`（基因/蛋白 ID 必须先有人写好 SMILES，流水线不会猜）。
+
 只演练、不写文件：
 
 ```bash
@@ -157,6 +168,8 @@ uv run omics-agent benchmark --experiment config/experiment.example.yaml --dry-r
 | `models/<name>/` | LastValue / Ridge / time_spline / MLP / GRU / ODE-RNN / latent ODE |
 | `reports/benchmark.md` | MSE / MAE / RMSE / PCC / Spearman / R2，含 per-sample、per-feature、macro、coverage、bootstrap CI |
 | `mlruns/` | 本地 MLflow |
+| `priors/bundle.yaml` | 版本化 PriorBundle（边 / 通路 / 冻结 embedding + hash） |
+| `reports/prior_ablation.md` | 五臂对照：效果差、参数量、运行时间、多种子 CI |
 
 常数特征的 PCC 是 **NA**，同时报告有效特征数，不会偷偷写成 0。
 
@@ -186,6 +199,8 @@ uv run omics-agent benchmark --experiment config/experiment.example.yaml --dry-r
 | `already ran its one-shot final test` | 该 `experiment_id` 的 test 锁已消耗 | 换新的 `experiment_id`；已冻结的结果就是最终结果 |
 | `Frozen-artifact check failed` | 冻结后 split/checkpoint/config/decision/evaluator 代码被改过 | 恢复原文件或重新 tune 冻结；final test 不跑被改过的输入 |
 | `unlock-test` 不带 `--confirm` 被拒 | final test 每个 experiment_id 只有一次 | 想清楚再加 `--confirm` |
+| `STRING functional association cannot be labelled physical_ppi` | 把 STRING 边标成了物理互作 | `edge_type: functional_association`，保留 evidence/score/version；物理 PPI 必须来自 IntAct 这类来源 |
+| graph_only ≈ random_graph | 度匹配负对照与真图差不多 | 不能声称先验带来生物学增益；换边或承认无效 |
 
 ## 验证
 
@@ -200,8 +215,8 @@ uv run omics-agent run-toy --output-dir outputs/toy
 
 ## 下一步（还没做，也不会假装做了）
 
-1. 先验消融与解释性（integrated gradients）、文献核验  
-2. 生物先验图（里程碑 4/5 有意不加）  
+1. 解释性（integrated gradients / group ablation）与文献核验  
+2. 真实 Reactome / STRING / ESM 抽取（需 pinned 版本、许可、隔离下载；当前合成 fixture 只用于工程验证）  
 
 解释值不是因果。文献以后若检索不到，只能写「在本次检索范围内未找到直接证据」。
 

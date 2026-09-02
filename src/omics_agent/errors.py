@@ -81,3 +81,7 @@ class OdeSolverError(OmicsAgentError):
 
 class TrainingDivergedError(OmicsAgentError):
     """A training loss became NaN/inf. The run must stop, not report garbage."""
+
+
+class PriorError(OmicsAgentError):
+    """A prior bundle is missing, mislabelled, or scientifically illegal."""

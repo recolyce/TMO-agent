@@ -24,6 +24,7 @@ from omics_agent.models.dynamics.networks import TemporalCore
 from omics_agent.models.dynamics.sequences import SequenceBatch, build_sequences
 from omics_agent.models.dynamics.torch_env import resolve_device
 from omics_agent.models.tasks import DataForModel, PredictionArrays
+from omics_agent.priors.runtime import PriorRuntime
 from omics_agent.schemas.experiment import ModelParams
 from omics_agent.schemas.model import AttributionTable, FitResult
 
@@ -87,6 +88,8 @@ class _DynamicsBase:
         self._target_names: list[str] = []
         self._params: dict[str, float] = {}
         self._epoch_callback: Callable[[int, float], None] | None = None
+        self._prior: PriorRuntime | None = None
+        self._prior_card: dict[str, Any] = {}
 
     def set_epoch_callback(self, callback: Callable[[int, float], None] | None) -> None:
         """Called with (epoch, val_masked_mse) at every val check.
@@ -97,6 +100,11 @@ class _DynamicsBase:
 
         self._epoch_callback = callback
 
+    def set_prior(self, runtime: PriorRuntime | None) -> None:
+        """Attach an aligned PriorRuntime for the next fit() / load() rebuild."""
+
+        self._prior = runtime
+
     def fit(self, train: DataForModel, val: DataForModel | None, cfg: ModelParams) -> FitResult:
         p = cfg.params
         seed = int(_num(p, "seed", 20260901))
@@ -106,6 +114,8 @@ class _DynamicsBase:
         patience = int(_num(p, "patience", 30))
         val_every = max(1, int(_num(p, "val_every", 5)))
         recon_weight = _num(p, "recon_weight", 0.3)
+        graph_weight = _num(p, "graph_weight", 0.1)
+        prior_proj_dim = int(_num(p, "embedding_proj_dim", 16))
         grad_clip = _num(p, "grad_clip", 5.0)
         device = resolve_device(str(p.get("device", "auto")))
 
@@ -123,15 +133,14 @@ class _DynamicsBase:
         seq = build_sequences(train, condition_categories=self._conditions, model_name=self.name)
         self._feature_dims = {m: seq.values[m].shape[2] for m in seq.modalities}
         self._target_names = list(train.forecast.feature_names)
-        model = TemporalCore(
-            feature_dims=self._feature_dims,
+        model = self._build_core(
             n_targets=seq.y_true.shape[1],
-            cond_dim=len(self._conditions),
             emb_dim=int(_num(p, "emb_dim", 32)),
             hidden_dim=int(_num(p, "hidden_dim", 48)),
-            mode=self.mode,
             rk4_substeps=int(_num(p, "rk4_substeps", 2)),
-        ).to(device)
+            prior_proj_dim=prior_proj_dim,
+            device=device,
+        )
         data = _Tensors(seq, device)
         val_data = None
         if val is not None and len(val.forecast.instance_ids):
@@ -164,6 +173,8 @@ class _DynamicsBase:
                         loss = loss + recon_weight * _masked_mse(
                             recon[modality], batch["values"][modality], recon_mask
                         )
+                if graph_weight > 0 and self._prior is not None and self._prior.flags.use_graph:
+                    loss = loss + graph_weight * model.prior_loss()
                 if not bool(torch.isfinite(loss)):
                     raise TrainingDivergedError(
                         f"{self.name} training loss became non-finite at epoch {epoch}.",
@@ -201,14 +212,21 @@ class _DynamicsBase:
             "emb_dim": int(_num(p, "emb_dim", 32)),
             "hidden_dim": int(_num(p, "hidden_dim", 48)),
             "rk4_substeps": int(_num(p, "rk4_substeps", 2)),
+            "graph_weight": graph_weight,
+            "embedding_proj_dim": prior_proj_dim,
         }
-        n_parameters = int(sum(int(t.numel()) for t in model.parameters()))
+        n_parameters = int(sum(int(t.numel()) for t in model.parameters() if t.requires_grad))
         extras: dict[str, object] = {
             "mode": self.mode,
             "device": str(device),
             "epochs_run": epochs_run,
             "conditions": self._conditions,
+            "n_trainable": n_parameters,
         }
+        if self._prior is not None:
+            extras["prior_ablation"] = self._prior.ablation.value
+            extras["prior_bundle_hash"] = self._prior.bundle_hash
+            extras["prior_bundle_version"] = self._prior.bundle_version
         if best_state is not None:
             extras["best_val_mse"] = best_val
         if self.mode == "latent_ode":
@@ -221,6 +239,73 @@ class _DynamicsBase:
             n_parameters=n_parameters,
             extras=extras,
         )
+
+    def _build_core(
+        self,
+        *,
+        n_targets: int,
+        emb_dim: int,
+        hidden_dim: int,
+        rk4_substeps: int,
+        prior_proj_dim: int,
+        device: torch.device,
+    ) -> TemporalCore:
+        prior = self._prior
+        pathway_dims: dict[str, int] | None = None
+        pathway_memberships: dict[str, Tensor] | None = None
+        frozen: dict[str, Tensor] | None = None
+        laplacian: Tensor | None = None
+        use_feature_prior = False
+        use_embedding_gate = False
+        if prior is not None:
+            use_feature_prior = prior.flags.use_graph or prior.flags.use_embedding
+            use_embedding_gate = prior.flags.use_embedding
+            if prior.flags.use_pathway:
+                pathway_dims = {m: int(mat.shape[0]) for m, mat in prior.pathway_membership.items()}
+                pathway_memberships = {
+                    m: torch.as_tensor(mat, dtype=torch.float32, device=device)
+                    for m, mat in prior.pathway_membership.items()
+                }
+            if use_embedding_gate:
+                frozen = {
+                    m: torch.as_tensor(tab, dtype=torch.float32, device=device)
+                    for m, tab in prior.frozen_embeddings.items()
+                }
+            if prior.flags.use_graph and prior.laplacian_weights.size:
+                laplacian = torch.as_tensor(
+                    prior.laplacian_weights, dtype=torch.float32, device=device
+                )
+            self._prior_card = {
+                "ablation": prior.ablation.value,
+                "use_pathway": prior.flags.use_pathway,
+                "use_graph": prior.flags.use_graph,
+                "use_embedding": prior.flags.use_embedding,
+                "pathway_dims": pathway_dims or {},
+                "use_feature_prior": use_feature_prior,
+                "use_embedding_gate": use_embedding_gate,
+                "embedding_dim": prior.embedding_dim,
+                "prior_proj_dim": prior_proj_dim,
+                "bundle_hash": prior.bundle_hash,
+                "bundle_version": prior.bundle_version,
+            }
+        else:
+            self._prior_card = {}
+        return TemporalCore(
+            feature_dims=self._feature_dims,
+            n_targets=n_targets,
+            cond_dim=len(self._conditions),
+            emb_dim=emb_dim,
+            hidden_dim=hidden_dim,
+            mode=self.mode,
+            rk4_substeps=rk4_substeps,
+            pathway_dims=pathway_dims,
+            pathway_memberships=pathway_memberships,
+            use_feature_prior=use_feature_prior,
+            use_embedding_gate=use_embedding_gate,
+            prior_proj_dim=prior_proj_dim,
+            frozen_embeddings=frozen,
+            laplacian_weights=laplacian,
+        ).to(device)
 
     @staticmethod
     def _eval_mse(model: TemporalCore, data: _Tensors) -> float:
@@ -279,6 +364,7 @@ class _DynamicsBase:
             "target_names": self._target_names,
             "params": self._params,
             "fit_split": "train",
+            "prior": self._prior_card,
         }
         (path / "card.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
 
@@ -301,7 +387,25 @@ class _DynamicsBase:
         self._feature_dims = {str(k): int(v) for k, v in card["feature_dims"].items()}
         self._target_names = list(card["target_names"])
         self._params = dict(card["params"])
+        self._prior_card = dict(card.get("prior") or {})
         device = resolve_device("auto")
+        prior_card = self._prior_card
+        pathway_dims = {str(k): int(v) for k, v in (prior_card.get("pathway_dims") or {}).items()}
+        frozen = None
+        if prior_card.get("use_embedding_gate"):
+            dim = int(prior_card.get("embedding_dim") or 0)
+            frozen = (
+                {m: torch.zeros(n, dim) for m, n in self._feature_dims.items()} if dim else None
+            )
+        laplacian = None
+        if prior_card.get("use_graph"):
+            n_all = sum(self._feature_dims.values())
+            laplacian = torch.zeros(n_all, n_all)
+        dummy_memberships = None
+        if pathway_dims:
+            dummy_memberships = {
+                m: torch.zeros(pathway_dims[m], self._feature_dims[m]) for m in pathway_dims
+            }
         model = TemporalCore(
             feature_dims=self._feature_dims,
             n_targets=len(self._target_names),
@@ -310,6 +414,15 @@ class _DynamicsBase:
             hidden_dim=int(self._params.get("hidden_dim", 48)),
             mode=self.mode,
             rk4_substeps=int(self._params.get("rk4_substeps", 2)),
+            pathway_dims=pathway_dims or None,
+            pathway_memberships=dummy_memberships,
+            use_feature_prior=bool(prior_card.get("use_feature_prior")),
+            use_embedding_gate=bool(prior_card.get("use_embedding_gate")),
+            prior_proj_dim=int(
+                prior_card.get("prior_proj_dim") or self._params.get("embedding_proj_dim", 16)
+            ),
+            frozen_embeddings=frozen,
+            laplacian_weights=laplacian,
         ).to(device)
         state = torch.load(path / "model.pt", map_location=device, weights_only=True)
         model.load_state_dict(state)

@@ -16,6 +16,7 @@ from omics_agent.data_sources.synthetic import generate_synthetic_dataset
 from omics_agent.errors import OmicsAgentError
 from omics_agent.optimization import run_final_test, run_tuning
 from omics_agent.pipeline import run_benchmark, run_preprocess, write_experiment_yaml
+from omics_agent.priors.ablation import run_prior_ablation
 from omics_agent.reporting.readiness import write_readiness_report
 from omics_agent.schemas.dataset import load_manifest
 from omics_agent.schemas.enums import FileRole, ReviewStatus, SamplingDesign, SourceType, SplitName
@@ -104,6 +105,38 @@ def doctor() -> None:
             "torch",
             "optional",
             "not installed; gru/ode_rnn/latent_ode need: uv sync --extra dev --extra torch",
+        )
+    from omics_agent.hashing import git_commit
+    from omics_agent.priors.embeddings import list_embedding_models
+    from omics_agent.priors.unimol import UNIMOL_DEFAULT_ROOT, UNIMOL_PINNED_COMMIT
+
+    preferred = ", ".join(
+        f"{item.name.value}{'*' if item.preferred else ''}" for item in list_embedding_models()
+    )
+    table.add_row("embedding models", "ok", f"{preferred} (*preferred)")
+    tools = UNIMOL_DEFAULT_ROOT / "unimol_tools" / "unimol_tools"
+    sha = git_commit(UNIMOL_DEFAULT_ROOT)
+    if tools.is_dir():
+        table.add_row(
+            "unimol checkout",
+            "ok",
+            f"{UNIMOL_DEFAULT_ROOT} HEAD={sha or 'unknown'} pin={UNIMOL_PINNED_COMMIT[:12]}",
+        )
+    else:
+        table.add_row(
+            "unimol checkout",
+            "optional",
+            f"not found at {UNIMOL_DEFAULT_ROOT}; set priors.embedding.unimol_root",
+        )
+    try:
+        import rdkit  # noqa: F401
+
+        table.add_row("rdkit", "ok", "importable (needed for live Uni-Mol)")
+    except ImportError:
+        table.add_row(
+            "rdkit",
+            "optional",
+            "not installed; live Uni-Mol needs rdkit. CI uses a mock extractor.",
         )
     console.print(table)
     if not all_ok:
@@ -343,6 +376,49 @@ def unlock_test(
         raise typer.Exit(code=1)
     try:
         result = run_final_test(experiment, model_name=model, output_dir=output_dir)
+    except OmicsAgentError as exc:
+        _fail(exc)
+    console.print(result)
+
+
+@app.command("ablate-priors")
+def ablate_priors(
+    experiment: Annotated[Path, typer.Option(help="Path to experiment.yaml")],
+    model: Annotated[str, typer.Option(help="Dynamics model: gru | ode_rnn | latent_ode")],
+    output_dir: Annotated[Path | None, typer.Option(help="Override output directory")] = None,
+    n_trials: Annotated[
+        int | None,
+        typer.Option(help="Shared HPO budget. 0 skips tuning and uses experiment.models params."),
+    ] = None,
+    embedding_model: Annotated[
+        str | None,
+        typer.Option(
+            help="Override priors.embedding.name: unimol | synthetic_pathway_onehot | esm"
+        ),
+    ] = None,
+    smiles_map: Annotated[
+        Path | None,
+        typer.Option(help="Feature→SMILES TSV for Uni-Mol (modality, feature_id, smiles)"),
+    ] = None,
+) -> None:
+    """Five-arm prior ablation on one locked split and one evaluator.
+
+    Arms: no_prior, graph_only, embedding_only, combined, random_graph.
+    Combined uses Reactome pathway features + graph Laplacian + frozen
+    embedding gate. STRING functional associations are never labelled
+    physical or causal. Validation only; test labels stay hidden.
+    Preferred embedding model is Uni-Mol (needs a SMILES map).
+    """
+
+    try:
+        result = run_prior_ablation(
+            experiment,
+            model_name=model,
+            output_dir=output_dir,
+            n_trials=n_trials,
+            embedding_model=embedding_model,
+            smiles_map=smiles_map,
+        )
     except OmicsAgentError as exc:
         _fail(exc)
     console.print(result)

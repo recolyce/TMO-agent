@@ -1,0 +1,7 @@
+# Feature → SMILES map for Uni-Mol (tab-separated).
+# Uni-Mol is a 3D small-molecule encoder. Do not invent SMILES for gene or protein IDs.
+# Columns: modality, feature_id, smiles
+modality	feature_id	smiles
+metabolite	ethanol	CCO
+metabolite	benzene	c1ccccc1
+metabolite	aspirin	CC(=O)Oc1ccccc1C(=O)O
