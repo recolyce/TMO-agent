@@ -152,6 +152,15 @@ class TimeSplineModel:
             path / "model.joblib",
         )
 
+    def load(self, path: Path) -> None:
+        payload = joblib.load(path / "model.joblib")
+        self._model = payload["model"]
+        self._formula = str(payload["formula"])
+        self._column_names = list(payload["column_names"])
+        self._conditions = list(payload["conditions"])
+        self._target_names = list(payload["target_names"])
+        self._spline_df = int(payload["spline_df"])
+
     def explain(self, data: DataForModel, targets: list[str]) -> AttributionTable:
         del data
         if self._model is None:

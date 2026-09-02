@@ -21,6 +21,7 @@ def log_benchmark_run(
     params: dict[str, Any],
     reports: list[EvaluationReport],
     artifacts: list[Path],
+    extra_metrics: dict[str, float] | None = None,
 ) -> str:
     """Create one MLflow run and return the run id.
 
@@ -52,6 +53,11 @@ def log_benchmark_run(
                         continue
                     mlflow.log_metric(f"{prefix}.{scalar.name}", scalar.value)
                     mlflow.log_metric(f"{prefix}.{scalar.name}.n_valid", scalar.n_valid)
+            for key, metric in (extra_metrics or {}).items():
+                if _finite(metric):
+                    mlflow.log_metric(key, metric)
+                else:
+                    skipped.append(key)
             if skipped:
                 mlflow.set_tag("metrics_skipped_na", ",".join(skipped[:40]))
             for artifact in artifacts:

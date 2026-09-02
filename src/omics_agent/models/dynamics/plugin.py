@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +86,16 @@ class _DynamicsBase:
         self._feature_dims: dict[str, int] = {}
         self._target_names: list[str] = []
         self._params: dict[str, float] = {}
+        self._epoch_callback: Callable[[int, float], None] | None = None
+
+    def set_epoch_callback(self, callback: Callable[[int, float], None] | None) -> None:
+        """Called with (epoch, val_masked_mse) at every val check.
+
+        The HPO pruner uses this hook; a raised exception (optuna.TrialPruned)
+        propagates out of fit(). Only the validation loss is ever reported.
+        """
+
+        self._epoch_callback = callback
 
     def fit(self, train: DataForModel, val: DataForModel | None, cfg: ModelParams) -> FitResult:
         p = cfg.params
@@ -167,6 +178,8 @@ class _DynamicsBase:
                 optimizer.step()
             if val_data is not None and (epoch + 1) % val_every == 0:
                 val_mse = self._eval_mse(model, val_data)
+                if self._epoch_callback is not None:
+                    self._epoch_callback(epoch, val_mse)
                 if val_mse < best_val - 1e-6:
                     best_val = val_mse
                     best_state = copy.deepcopy(model.state_dict())
@@ -185,6 +198,9 @@ class _DynamicsBase:
             "lr": lr,
             "batch_size": batch_size,
             "recon_weight": recon_weight,
+            "emb_dim": int(_num(p, "emb_dim", 32)),
+            "hidden_dim": int(_num(p, "hidden_dim", 48)),
+            "rk4_substeps": int(_num(p, "rk4_substeps", 2)),
         }
         n_parameters = int(sum(int(t.numel()) for t in model.parameters()))
         extras: dict[str, object] = {
@@ -265,6 +281,41 @@ class _DynamicsBase:
             "fit_split": "train",
         }
         (path / "card.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
+
+    def load(self, path: Path) -> None:
+        """Rebuild the network from card.json and restore the checkpoint."""
+
+        card_path = path / "card.json"
+        if not card_path.is_file():
+            raise SchemaError(
+                f"No card.json under {path}.",
+                how_to_fix="Point at a directory written by save() (model.pt + card.json).",
+            )
+        card = json.loads(card_path.read_text(encoding="utf-8"))
+        if card.get("mode") != self.mode:
+            raise SchemaError(
+                f"Checkpoint mode '{card.get('mode')}' does not match plugin '{self.mode}'.",
+                how_to_fix="Load the checkpoint with the model it was saved from.",
+            )
+        self._conditions = list(card["conditions"])
+        self._feature_dims = {str(k): int(v) for k, v in card["feature_dims"].items()}
+        self._target_names = list(card["target_names"])
+        self._params = dict(card["params"])
+        device = resolve_device("auto")
+        model = TemporalCore(
+            feature_dims=self._feature_dims,
+            n_targets=len(self._target_names),
+            cond_dim=len(self._conditions),
+            emb_dim=int(self._params.get("emb_dim", 32)),
+            hidden_dim=int(self._params.get("hidden_dim", 48)),
+            mode=self.mode,
+            rk4_substeps=int(self._params.get("rk4_substeps", 2)),
+        ).to(device)
+        state = torch.load(path / "model.pt", map_location=device, weights_only=True)
+        model.load_state_dict(state)
+        model.eval()
+        self._model = model
+        self._device = device
 
     def explain(self, data: DataForModel, targets: list[str]) -> AttributionTable:
         del data, targets

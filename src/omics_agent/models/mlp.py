@@ -99,6 +99,12 @@ class MlpModel:
             path / "model.joblib",
         )
 
+    def load(self, path: Path) -> None:
+        payload = joblib.load(path / "model.joblib")
+        self._model = payload["model"]
+        self._encoder = payload["encoder"]
+        self._target_names = list(payload["targets"])
+
     def explain(self, data: DataForModel, targets: list[str]) -> AttributionTable:
         del data, targets
         return AttributionTable(

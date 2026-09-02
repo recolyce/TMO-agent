@@ -65,5 +65,23 @@ cross-sectional data raises TaskDesignError (rule 4). Also added a sklearn
 optional extra; without it those plugins are unregistered and get_model
 explains the install. No biological priors yet (deliberate).
 
+## Milestone 5 scope
+
+Implemented: Optuna validation-only HPO (`tune` CLI). Fixed budget, fixed
+TPE sampler seed, fixed study name `<experiment_id>::<model>`, median
+pruner fed by a per-epoch val-MSE callback on the dynamics plugins. The
+objective closure receives train/val data only; test rows are never subset
+inside the tuner (regression-tested with a subset spy). Search spaces are
+code, not config. Output is a structured `OptimizationDecision`
+(`objective_split` is literally `"val"`, `test_labels_visible` literally
+`False`) plus a frozen artifact: checkpoint, frozen_experiment.yaml, and a
+`FreezeManifest` hashing checkpoint/config/decision/split/data and the
+evaluator+splitting source trees. Only the explicit `unlock-test --confirm`
+command runs the final test, exactly once per experiment_id: it recomputes
+every frozen hash first (any mismatch → `ArtifactIntegrityError`), consumes
+the lock BEFORE scoring (fail-closed), and a consumed lock blocks both
+re-testing and further tuning (`TestLockError`). All plugins gained
+`load()` so the final test runs the frozen checkpoint, not a refit.
+
 Not implemented (must raise, not fake success): LLM agents, SRA/raw FASTQ,
-raw mass-spec, Optuna, IG/ablation, literature, web UI, biological priors.
+raw mass-spec, IG/ablation, literature, web UI, biological priors.

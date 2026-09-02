@@ -23,6 +23,7 @@ dependencies = [
     "patsy>=0.5.6,<1",
     "fastparquet>=2024.5.0,<2026",
     "joblib>=1.4,<2",
+    "optuna>=4",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +42,10 @@ workflow = ["snakemake>=8.20,<10"]
 
 [project.scripts]
 omics-agent = "omics_agent.cli:app"
+
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple"
+default = true
 
 [build-system]
 requires = ["hatchling"]

@@ -67,6 +67,14 @@ class UnsupportedRawDataError(OmicsAgentError):
     """FASTQ / raw mass-spec is outside milestone 2."""
 
 
+class TestLockError(OmicsAgentError):
+    """The one-shot final test for this experiment_id was already consumed."""
+
+
+class ArtifactIntegrityError(OmicsAgentError):
+    """A frozen artifact (config, checkpoint, split, evaluator) was modified."""
+
+
 class OdeSolverError(OmicsAgentError):
     """ODE integration produced non-finite latent states."""
 

@@ -112,6 +112,9 @@ class RidgeModel:
         path.mkdir(parents=True, exist_ok=True)
         joblib.dump(self._state, path / "model.joblib")
 
+    def load(self, path: Path) -> None:
+        self._state = joblib.load(path / "model.joblib")
+
     def explain(self, data: DataForModel, targets: list[str]) -> AttributionTable:
         del data
         if self._state.model is None:

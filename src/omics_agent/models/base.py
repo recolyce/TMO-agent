@@ -33,6 +33,9 @@ class ModelPlugin(Protocol):
     def save(self, path: Path) -> None:
         """Serialize the fitted model into ``path`` (a directory)."""
 
+    def load(self, path: Path) -> None:
+        """Restore a fitted model from ``path``. Used by the one-shot final test."""
+
     def explain(self, data: DataForModel, targets: list[str]) -> AttributionTable:
         """Return coefficients or an explicit 'no parameters' table. Not causation."""
 

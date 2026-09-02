@@ -53,5 +53,11 @@ models:
 evaluation:
   bootstrap_replicates: 200
   unlock_test: true
+# Milestone 5: validation-only Optuna (omics-agent tune --model <name>).
+# The objective never sees test rows; search spaces live in code.
+optimization:
+  n_trials: 20
+  objective_metric: mse
+  pruner: {n_startup_trials: 5, n_warmup_reports: 2}
 # Resolved against the current working directory (run from the repo root).
 output_dir: outputs/m4/run

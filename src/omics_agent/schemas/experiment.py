@@ -20,6 +20,7 @@ from omics_agent.schemas.enums import (
     SplitName,
     TaskKind,
 )
+from omics_agent.schemas.optimization import OptimizationConfig
 from omics_agent.schemas.preprocess import ModalityPreprocessConfig
 
 
@@ -132,6 +133,7 @@ class ExperimentConfig(StrictModel):
     models: list[ModelParams] = Field(min_length=1)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
     output_dir: Path | None = None
 
     def load_dataset_design(self, experiment_path: Path) -> tuple[SamplingDesign, PairingLevel, list[str]]:

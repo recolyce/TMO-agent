@@ -14,6 +14,7 @@ from omics_agent import __version__
 from omics_agent.data_sources.ingest import load_ingest_manifest, run_ingest
 from omics_agent.data_sources.synthetic import generate_synthetic_dataset
 from omics_agent.errors import OmicsAgentError
+from omics_agent.optimization import run_final_test, run_tuning
 from omics_agent.pipeline import run_benchmark, run_preprocess, write_experiment_yaml
 from omics_agent.reporting.readiness import write_readiness_report
 from omics_agent.schemas.dataset import load_manifest
@@ -281,6 +282,67 @@ def benchmark(
             dry_run=dry_run,
             unlock_test=unlock_test if unlock_test else None,
         )
+    except OmicsAgentError as exc:
+        _fail(exc)
+    console.print(result)
+
+
+@app.command("tune")
+def tune(
+    experiment: Annotated[Path, typer.Option(help="Path to experiment.yaml")],
+    model: Annotated[str, typer.Option(help="One registered model name to tune")],
+    output_dir: Annotated[Path | None, typer.Option(help="Override output directory")] = None,
+    n_trials: Annotated[
+        int | None, typer.Option(help="Override optimization.n_trials (fixed budget)")
+    ] = None,
+) -> None:
+    """Validation-only Optuna HPO, then freeze the best config + checkpoint.
+
+    The objective never sees test labels. Fixed budget, sampler seed, study
+    name, and median pruner are recorded in the OptimizationDecision. After
+    a consumed test lock, tuning the same experiment_id is refused.
+    """
+
+    try:
+        result = run_tuning(
+            experiment, model_name=model, output_dir=output_dir, n_trials=n_trials
+        )
+    except OmicsAgentError as exc:
+        _fail(exc)
+    console.print(result)
+
+
+@app.command("unlock-test")
+def unlock_test(
+    experiment: Annotated[Path, typer.Option(help="Path to experiment.yaml")],
+    model: Annotated[str, typer.Option(help="Frozen model to evaluate")],
+    output_dir: Annotated[Path | None, typer.Option(help="Override output directory")] = None,
+    confirm: Annotated[
+        bool,
+        typer.Option(
+            "--confirm",
+            help="Required. The final test runs exactly once per experiment_id.",
+        ),
+    ] = False,
+) -> None:
+    """Run the one-shot final test on a frozen checkpoint.
+
+    Refuses if any frozen hash (config, checkpoint, decision, split,
+    evaluator/splitting code) changed, and consumes the test lock before
+    scoring. Afterwards, tuning this experiment_id is forbidden.
+    """
+
+    if not confirm:
+        console.print(
+            "[red]unlock-test is one-shot per experiment_id and consumes the test "
+            "lock before scoring.[/red]"
+        )
+        console.print()
+        console.print("[bold]How to fix[/bold]")
+        console.print("Re-run with --confirm if you really want to spend the final test now.")
+        raise typer.Exit(code=1)
+    try:
+        result = run_final_test(experiment, model_name=model, output_dir=output_dir)
     except OmicsAgentError as exc:
         _fail(exc)
     console.print(result)

@@ -10,6 +10,8 @@
 
 里程碑 4：纯 PyTorch 的时序动力学模型 `gru` / `ode_rnn` / `latent_ode`（modality encoders → gated fusion → latent dynamics → modality decoders），支持真实 delta_t、缺失掩码和 condition 协变量，外加一个 sklearn `mlp` 基线。**只对纵向 subject_forecast 合法**——重复横断面会直接报错，不会把不同动物拼成轨迹。ODE 用自带的固定步长 RK4；solver 出现 NaN/inf、训练 loss 发散都会抛出类型化错误而不是继续汇报垃圾结果。
 
+里程碑 5：Optuna **仅 validation** 调参——固定预算、固定 sampler seed、固定 study name、median pruner，全程 MLflow tracking，产出结构化 `OptimizationDecision`。**optimizer 的目标函数拿不到 test 行**（有运行时防护 + 回归测试证明）。调参结束自动冻结 best config / checkpoint / 全套 hash；只有显式 `unlock-test --confirm` 能跑**一次** final test（评分前先烧掉锁，fail-closed）；之后同一 `experiment_id` 的调参和再测一律拒绝。任何对 split / checkpoint / 冻结 config / decision / evaluator 代码的修改都会被 hash 校验拒绝。
+
 ## 你需要什么
 
 - Python 3.11（`uv` 会帮你安装）
@@ -102,6 +104,21 @@ uv run omics-agent benchmark --experiment config/experiment.dynamics.example.yam
 `last_value` MSE 0.689 → `ridge` 0.304 → `mlp` 0.230 → `gru` 0.211 → `ode_rnn` 0.197 → `latent_ode` 0.178。
 三个动力学模型的超参在 `params` 里（`epochs`、`hidden_dim`、`recon_weight`、`rk4_substeps`、`device` 等）；`latent_ode` 是确定性的 encoder-ODE-decoder（无 VAE 采样），由 seed 完全复现。
 
+调参并冻结，然后花掉唯一一次 final test（里程碑 5）：
+
+```bash
+# 仅 validation 的 Optuna：固定预算/seed/study/pruner，写 OptimizationDecision + 冻结
+uv run omics-agent tune --experiment outputs/m4/experiment.yaml --model gru --n-trials 12
+
+# 一次性 final test：先校验全部冻结 hash，再烧锁，再评分。不加 --confirm 会拒绝。
+uv run omics-agent unlock-test --experiment outputs/m4/experiment.yaml --model gru --confirm
+
+# 之后再 tune / unlock-test 同一个 experiment_id 都会被拒绝：
+#   "Start a new experiment_id (new hypothesis, new budget)."
+```
+
+写出 `reports/optimization_decision_<model>.json`（预算、seed、pruner、逐 trial 记录、best params、`objective_split: val`、`test_labels_visible: false`）、`frozen/<model>/`（checkpoint + frozen_experiment.yaml + freeze_manifest.json）和 `test_lock.json`。`optimization:` 块可在 experiment.yaml 里调 `n_trials` / `objective_metric`（mse|mae）/ pruner 参数；搜索空间是代码不是配置，optimizer 改不了 split、evaluator 和 primary metric。
+
 只演练、不写文件：
 
 ```bash
@@ -166,6 +183,9 @@ uv run omics-agent benchmark --experiment config/experiment.example.yaml --dry-r
 | `needs longitudinal subject histories` | 对重复横断面数据用动力学模型 | 这类数据只能用 `last_value`/`ridge`/`mlp` + `group_time_forecast` |
 | `ODE integration produced NaN/inf` / `loss became non-finite` | solver 或训练发散 | 调低 `lr`、增大 `rk4_substeps` 或减小 `hidden_dim`；发散的 run 不会出报告 |
 | 条件在 val/test 出现但 train 没见过 | condition one-hot 编码未定义 | 检查 split：每个 condition 必须在 train 中出现 |
+| `already ran its one-shot final test` | 该 `experiment_id` 的 test 锁已消耗 | 换新的 `experiment_id`；已冻结的结果就是最终结果 |
+| `Frozen-artifact check failed` | 冻结后 split/checkpoint/config/decision/evaluator 代码被改过 | 恢复原文件或重新 tune 冻结；final test 不跑被改过的输入 |
+| `unlock-test` 不带 `--confirm` 被拒 | final test 每个 experiment_id 只有一次 | 想清楚再加 `--confirm` |
 
 ## 验证
 
@@ -180,9 +200,8 @@ uv run omics-agent run-toy --output-dir outputs/toy
 
 ## 下一步（还没做，也不会假装做了）
 
-1. 仅 validation 的 Optuna，以及一次性 unlock-test  
-2. 先验消融与解释性（integrated gradients）、文献核验  
-3. 生物先验图（里程碑 4 有意不加）  
+1. 先验消融与解释性（integrated gradients）、文献核验  
+2. 生物先验图（里程碑 4/5 有意不加）  
 
 解释值不是因果。文献以后若检索不到，只能写「在本次检索范围内未找到直接证据」。
 

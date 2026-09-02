@@ -67,6 +67,12 @@ class LastValueModel:
             path / "model.joblib",
         )
 
+    def load(self, path: Path) -> None:
+        payload = joblib.load(path / "model.joblib")
+        self._n_features = int(payload["n_features"])
+        self._feature_names = list(payload["feature_names"])
+        self._fitted = bool(payload["fitted"])
+
     def explain(self, data: DataForModel, targets: list[str]) -> AttributionTable:
         del data, targets
         return AttributionTable(

@@ -1,10 +1,11 @@
-"""Validation-only HPO. Not implemented in milestone 1."""
+"""Milestone-5 validation-only HPO, freeze, and one-shot test lock.
 
-from omics_agent.errors import OmicsAgentError
+The Optuna objective receives train and val data only. Test rows are never
+materialized inside the tuner, and a consumed test lock forbids further
+tuning under the same experiment_id.
+"""
 
+from omics_agent.optimization.lock import run_final_test
+from omics_agent.optimization.tuner import run_tuning
 
-def require_optimization() -> None:
-    raise OmicsAgentError(
-        "Optuna HPO is not part of milestone 1.",
-        how_to_fix="Use the registered baselines with the YAML hyperparameters. Optimizer must never see test labels.",
-    )
+__all__ = ["run_final_test", "run_tuning"]
